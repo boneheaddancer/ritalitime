@@ -1,0 +1,30 @@
+{
+    "paracetamol_500mg": {
+      "onset_min": 20,
+      "time_until_peak_min": 60,
+      "peak_duration_min": 60,
+      "duration_min": 300,
+      "wear_off_duration_min": 60,
+      "intensity_peak": 6,
+      "intensity_avg": 5
+    },
+    "ibuprofen_400mg": {
+      "onset_min": 30,
+      "time_until_peak_min": 90,
+      "peak_duration_min": 120,
+      "duration_min": 360,
+      "wear_off_duration_min": 90,
+      "intensity_peak": 7,
+      "intensity_avg": 6
+    },
+    "panodil_665mg_mr": {
+      "onset_min": 45,
+      "time_until_peak_min": 240,
+      "peak_duration_min": 300,
+      "duration_min": 480,
+      "wear_off_duration_min": 135,
+      "intensity_peak": 6,
+      "intensity_avg": 5
+    }
+  }
+  

@@ -1,0 +1,99 @@
+{
+  "preset_profiles": {
+    "day_shift": {
+      "name": "🌅 Day Shift",
+      "description": "Covers 6AM-10PM work hours",
+      "medications": [
+        {
+          "time": "08:00",
+          "dosage": 20.0,
+          "medication_name": "ritalin_IR",
+          "onset_time": 1.0,
+          "peak_time": 2.0,
+          "duration": 8.0,
+          "peak_effect": 1.0
+        },
+        {
+          "time": "16:00",
+          "dosage": 10.0,
+          "medication_name": "ritalin_IR",
+          "onset_time": 1.0,
+          "peak_time": 2.0,
+          "duration": 6.0,
+          "peak_effect": 1.0
+        }
+      ],
+      "stimulants": [],
+      "sleep_threshold": 0.3,
+      "preferred_sleep_time": 22.0,
+      "preferred_sleep_duration": 7.5
+    },
+    "night_shift": {
+      "name": "🌙 Night Shift",
+      "description": "Covers 8PM-10AM night hours",
+      "medications": [
+        {
+          "time": "20:00",
+          "dosage": 20.0,
+          "medication_name": "ritalin_IR",
+          "onset_time": 1.0,
+          "peak_time": 2.0,
+          "duration": 8.0,
+          "peak_effect": 1.0
+        },
+        {
+          "time": "04:00",
+          "dosage": 15.0,
+          "medication_name": "ritalin_IR",
+          "onset_time": 1.0,
+          "peak_time": 2.0,
+          "duration": 6.0,
+          "peak_effect": 1.0
+        }
+      ],
+      "stimulants": [],
+      "sleep_threshold": 0.3,
+      "preferred_sleep_time": 22.0,
+      "preferred_sleep_duration": 7.5
+    },
+    "coffee_day": {
+      "name": "☕ Coffee Day",
+      "description": "Natural stimulants only",
+      "medications": [],
+      "stimulants": [
+        {
+          "time": "08:00",
+          "stimulant_name": "coffee",
+          "quantity": 2.0,
+          "component_name": "caffeine",
+          "onset_time": 0.25,
+          "peak_time": 1.0,
+          "duration": 4.0,
+          "peak_effect": 0.8
+        },
+        {
+          "time": "14:00",
+          "stimulant_name": "coffee",
+          "quantity": 1.0,
+          "component_name": "caffeine",
+          "onset_time": 0.25,
+          "peak_time": 1.0,
+          "duration": 4.0,
+          "peak_effect": 0.6
+        }
+      ],
+      "sleep_threshold": 0.3,
+      "preferred_sleep_time": 22.0,
+      "preferred_sleep_duration": 7.5
+    },
+    "total_zen": {
+      "name": "🧘 Total Zen",
+      "description": "No medications or stimulants - Natural sleep cycle - Reset for tolerance breaks",
+      "medications": [],
+      "stimulants": [],
+      "sleep_threshold": 0.3,
+      "preferred_sleep_time": 22.0,
+      "preferred_sleep_duration": 7.5
+    }
+  }
+}
