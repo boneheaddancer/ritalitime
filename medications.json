@@ -1,0 +1,169 @@
+{
+  "stimulants": {
+    "common_stimulants": {
+      "coffee": {
+        "category": "stimulant",
+        "default_dose_unit": "cup",
+        "onset_min": 10,
+        "peak_time_min": 60,
+        "peak_duration_min": 45,
+        "duration_min": 360,
+        "wear_off_duration_min": 90
+      },
+      "redbull": {
+        "category": "stimulant",
+        "default_dose_unit": "can",
+        "caffeine": {
+          "onset_min": 10,
+          "peak_time_min": 60,
+          "peak_duration_min": 45,
+          "duration_min": 360,
+          "wear_off_duration_min": 90
+        },
+        "taurine": {
+          "onset_min": 10,
+          "peak_time_min": 60,
+          "peak_duration_min": 60,
+          "duration_min": 420,
+          "wear_off_duration_min": 120
+        }
+      },
+      "monster": {
+        "category": "stimulant",
+        "default_dose_unit": "can",
+        "caffeine": {
+          "onset_min": 10,
+          "peak_time_min": 60,
+          "peak_duration_min": 45,
+          "duration_min": 360,
+          "wear_off_duration_min": 90
+        },
+        "taurine": {
+          "onset_min": 10,
+          "peak_time_min": 60,
+          "peak_duration_min": 60,
+          "duration_min": 420,
+          "wear_off_duration_min": 120
+        }
+      }
+    },
+    "prescription_stimulants": {
+      "ritalin_IR": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 25,
+        "peak_time_min": 90,
+        "peak_duration_min": 60,
+        "duration_min": 240,
+        "wear_off_duration_min": 60
+      },
+      "ritalin_LA": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 60,
+        "peak_time_min": 180,
+        "peak_duration_min": 120,
+        "duration_min": 420,
+        "wear_off_duration_min": 120
+      },
+      "concerta": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 90,
+        "peak_time_min": 420,
+        "peak_duration_min": 180,
+        "duration_min": 720,
+        "wear_off_duration_min": 180
+      },
+      "adderall_IR": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 30,
+        "peak_time_min": 90,
+        "peak_duration_min": 60,
+        "duration_min": 360,
+        "wear_off_duration_min": 90
+      },
+      "adderall_XR": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 60,
+        "peak_time_min": 240,
+        "peak_duration_min": 180,
+        "duration_min": 720,
+        "wear_off_duration_min": 180
+      },
+      "vyvanse": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 90,
+        "peak_time_min": 240,
+        "peak_duration_min": 180,
+        "duration_min": 780,
+        "wear_off_duration_min": 180
+      },
+      "elvanse": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 90,
+        "peak_time_min": 240,
+        "peak_duration_min": 180,
+        "duration_min": 780,
+        "wear_off_duration_min": 180
+      },
+      "dexedrine_IR": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 30,
+        "peak_time_min": 90,
+        "peak_duration_min": 60,
+        "duration_min": 360,
+        "wear_off_duration_min": 90
+      },
+      "dexedrine_ER": {
+        "category": "stimulant",
+        "default_dose_unit": "mg",
+        "onset_min": 60,
+        "peak_time_min": 180,
+        "peak_duration_min": 120,
+        "duration_min": 480,
+        "wear_off_duration_min": 120
+      }
+    }
+  },
+  "painkillers": {
+    "paracetamol_500mg": {
+      "category": "painkiller",
+      "default_dose_unit": "mg",
+      "onset_min": 20,
+      "time_until_peak_min": 60,
+      "peak_duration_min": 60,
+      "duration_min": 300,
+      "wear_off_duration_min": 60,
+      "intensity_peak": 6,
+      "intensity_avg": 5
+    },
+    "ibuprofen_400mg": {
+      "category": "painkiller",
+      "default_dose_unit": "mg",
+      "onset_min": 30,
+      "time_until_peak_min": 90,
+      "peak_duration_min": 120,
+      "duration_min": 360,
+      "wear_off_duration_min": 90,
+      "intensity_peak": 7,
+      "intensity_avg": 6
+    },
+    "panodil_665mg_mr": {
+      "category": "painkiller",
+      "default_dose_unit": "mg",
+      "onset_min": 45,
+      "time_until_peak_min": 240,
+      "peak_duration_min": 300,
+      "duration_min": 480,
+      "wear_off_duration_min": 135,
+      "intensity_peak": 6,
+      "intensity_avg": 5
+    }
+  }
+}

@@ -3,36 +3,210 @@ import pandas as pd
 from datetime import datetime, time, timedelta
 from typing import List, Dict, Tuple, Optional
 import json
+from pk_models import concentration_curve
+from saturation import combine_and_cap
+import streamlit as st
 
 class MedicationSimulator:
-    """ADHD Medication Timeline Simulator with Emax/Hill pharmacodynamic model"""
+    """ADHD Medication Timeline Simulator with PK-based curves and saturation"""
     
     def __init__(self):
         self.medications = []
         self.stimulants = []
         self.time_points = np.arange(0, 24, 0.1)  # 10-minute intervals
         self.sleep_threshold = 0.3  # Effect level below which sleep is suitable
-        # Generic Hill saturation parameters for combined effects
+        # Saturation parameters for combined effects
         self.emax = 1.0  # Maximum combined effect (ceiling)
-        self.hill_coefficient = 1.0  # Hill coefficient for saturation curve
-        self.saturation_threshold = 0.8  # Effect level where saturation begins
+        self.ec50 = 0.5  # Concentration for 50% of max effect
+        self.hill_coefficient = 1.5  # Hill coefficient for saturation curve
     
-    def apply_hill_saturation(self, combined_effect: np.ndarray) -> np.ndarray:
+    def _time_to_minutes(self, time_str: str) -> int:
+        """Convert HH:MM time string to minutes since midnight (0-1439)"""
+        hour, minute = map(int, time_str.split(':'))
+        return (hour * 60 + minute) % 1440
+    
+    def _minutes_to_time(self, minutes: int) -> str:
+        """Convert minutes since midnight to HH:MM format"""
+        minutes = minutes % 1440
+        hour = minutes // 60
+        minute = minutes % 60
+        return f"{hour:02d}:{minute:02d}"
+    
+    def _minutes_to_decimal_hours(self, minutes: int) -> float:
+        """Convert minutes since midnight to decimal hours (0-24)"""
+        minutes = minutes % 1440
+        return minutes / 60.0
+    
+    def _decimal_hours_to_minutes(self, decimal_hours: float) -> int:
+        """Convert decimal hours to minutes since midnight"""
+        minutes = int(decimal_hours * 60)
+        return minutes % 1440
+    
+    def _load_medications_data(self) -> Dict:
+        """Load unified medications data"""
+        try:
+            with open('medications.json', 'r') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading medications.json: {e}")
+            return {}
+    
+    def apply_saturation(self, total_concentration: np.ndarray) -> np.ndarray:
         """
-        Apply Hill saturation curve to combined effects
+        Apply Hill saturation curve to total concentration
         This prevents unlimited additive effects while preserving individual dose timing
         """
-        # Normalize to saturation threshold, then apply Hill curve
-        normalized_effect = combined_effect / self.saturation_threshold
-        
-        # Apply Hill saturation: E = Emax * C^h / (1 + C^h)
-        # This flattens the curve as effects approach the ceiling
-        effect_h = normalized_effect ** self.hill_coefficient
-        saturated_effect = self.emax * effect_h / (1 + effect_h)
-        
-        return saturated_effect
+        from saturation import hill_emax
+        return hill_emax(total_concentration, self.emax, self.ec50, self.hill_coefficient)
     
-
+    def generate_pk_curve(self, dose: Dict) -> np.ndarray:
+        """Generate PK-based concentration curve for a single dose using pk_models.py"""
+        effect = np.zeros_like(self.time_points)
+        
+        # Get PK parameters from dose
+        onset_min = dose.get('onset_min', dose.get('onset_time', 60)) * 60  # Convert to minutes
+        t_peak_min = dose.get('peak_time_min', dose.get('peak_time', 120)) * 60  # Convert to minutes
+        duration_min = dose.get('duration_min', dose.get('duration', 480)) * 60  # Convert to minutes
+        
+        # Handle different parameter formats (some doses use hours, some use minutes)
+        if dose.get('onset_time'):  # If in hours
+            onset_min = dose['onset_time'] * 60
+        if dose.get('peak_time'):  # If in hours
+            t_peak_min = dose['peak_time'] * 60
+        if dose.get('duration'):  # If in hours
+            duration_min = dose['duration'] * 60
+        
+        # Generate PK curve using the concentration_curve function
+        try:
+            pk_curve = concentration_curve(
+                dose=1.0,  # Normalized dose (curve will be normalized to peak=1.0)
+                onset_min=onset_min,
+                t_peak_min=t_peak_min,
+                duration_min=duration_min,
+                minutes=1440,  # 24 hours
+                step=6  # 10-minute intervals (6 minutes = 0.1 hours)
+            )
+            
+            # Extract time points and concentrations
+            pk_times = [t/60.0 for t, _ in pk_curve]  # Convert minutes to hours
+            pk_concentrations = [c for _, c in pk_curve]
+            
+            # Scale by dose intensity
+            if dose['type'] == 'medication':
+                # For medications, scale by dosage relative to standard dose
+                dose_intensity = dose['dosage'] / 20.0  # Assume 20mg is standard dose
+            else:
+                # For stimulants, use the stored peak_effect
+                dose_intensity = dose.get('peak_effect', 1.0)
+            
+            # Interpolate PK curve to our time grid and apply dose intensity
+            for i, t in enumerate(self.time_points):
+                # Calculate time since dose, handling midnight wrapping
+                dose_time_minutes = self._decimal_hours_to_minutes(dose['time'])
+                current_time_minutes = self._decimal_hours_to_minutes(t)
+                
+                # Calculate time difference with midnight wrapping
+                if current_time_minutes >= dose_time_minutes:
+                    time_since_dose = current_time_minutes - dose_time_minutes
+                else:
+                    time_since_dose = (1440 - dose_time_minutes) + current_time_minutes
+                
+                # Find the closest PK time point
+                if time_since_dose <= 1440:  # Within 24 hours
+                    # Find closest time index in PK curve
+                    pk_index = min(len(pk_times) - 1, int(time_since_dose / 6))  # 6-minute steps
+                    
+                    if pk_index < len(pk_concentrations):
+                        effect[i] = pk_concentrations[pk_index] * dose_intensity
+                        
+        except Exception as e:
+            # Fallback to simple curve if PK generation fails
+            print(f"PK curve generation failed for dose {dose.get('id', 'unknown')}: {e}")
+            effect = self._generate_fallback_curve(dose)
+        
+        return effect
+    
+    def _generate_fallback_curve(self, dose: Dict) -> np.ndarray:
+        """Fallback curve generation if PK models fail"""
+        effect = np.zeros_like(self.time_points)
+        
+        # Simple trapezoid curve as fallback
+        onset_time = dose.get('onset_time', 1.0)
+        peak_time = dose.get('peak_time', 2.0)
+        duration = dose.get('duration', 8.0)
+        peak_duration = dose.get('peak_duration', 1.0)
+        
+        if dose['type'] == 'medication':
+            peak_effect = dose['dosage'] / 20.0
+        else:
+            peak_effect = dose.get('peak_effect', 1.0)
+        
+        fall_start = peak_time + peak_duration
+        
+        for i, t in enumerate(self.time_points):
+            # Calculate time since dose with midnight wrapping
+            dose_time_minutes = self._decimal_hours_to_minutes(dose['time'])
+            current_time_minutes = self._decimal_hours_to_minutes(t)
+            
+            if current_time_minutes >= dose_time_minutes:
+                time_since_dose = current_time_minutes - dose_time_minutes
+            else:
+                time_since_dose = (1440 - dose_time_minutes) + current_time_minutes
+            
+            # Convert to hours for comparison
+            time_since_dose_hours = time_since_dose / 60.0
+            
+            if 0 <= time_since_dose_hours < duration:
+                if time_since_dose_hours < peak_time:
+                    effect[i] = (time_since_dose_hours / peak_time) * peak_effect
+                elif time_since_dose_hours < fall_start:
+                    effect[i] = peak_effect
+                else:
+                    fall_progress = (time_since_dose_hours - fall_start) / (duration - fall_start)
+                    fall_progress = max(0, min(1, fall_progress))
+                    effect[i] = peak_effect * (1 - fall_progress)
+        
+        return effect
+    
+    def generate_daily_timeline(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Generate combined daily effect timeline from all doses using PK curves and saturation"""
+        if not self.medications and not self.stimulants:
+            return self.time_points, np.zeros_like(self.time_points)
+        
+        # Generate individual PK curves for all doses
+        individual_curves = []
+        for dose in self.get_all_doses():
+            curve = self.generate_pk_curve(dose)
+            individual_curves.append(curve)
+        
+        # Combine curves using saturation model
+        if len(individual_curves) == 1:
+            combined_effect = individual_curves[0]
+        else:
+            # Convert numpy arrays to lists for saturation function
+            curve_lists = [curve.tolist() for curve in individual_curves]
+            combined_effect = np.array(combine_and_cap(
+                curve_lists, 
+                emax=self.emax, 
+                ec50=self.ec50, 
+                h=self.hill_coefficient
+            ))
+        
+        return self.time_points, combined_effect
+    
+    def get_individual_curves(self) -> List[Tuple[str, np.ndarray]]:
+        """Get individual PK curves for plotting"""
+        curves = []
+        for dose in self.get_all_doses():
+            curve = self.generate_pk_curve(dose)
+            if dose['type'] == 'medication':
+                label = f"{dose['dosage']}mg {dose.get('medication_name', 'medication')}"
+            else:
+                label = f"{dose['quantity']}x {dose['stimulant_name']}"
+                if dose.get('component_name'):
+                    label += f" ({dose['component_name']})"
+            curves.append((label, curve))
+        return curves
     
     def add_medication(self, dose_time: str, dosage: float, 
                        onset_time: float = 1.0, peak_time: float = 2.0, 
@@ -51,11 +225,10 @@ class MedicationSimulator:
             medication_name: Name of prescription medication (e.g., 'ritalin_IR', 'adderall_XR')
             custom_params: Override default parameters if provided
         """
-        # Parse time string
-        hour, minute = map(int, dose_time.split(':'))
-        dose_hour = hour + minute / 60.0
+        # Convert time to minutes since midnight
+        dose_minutes = self._time_to_minutes(dose_time)
         
-        # If medication_name is provided, load from prescription database
+        # If medication_name is provided, load from unified medications database
         if medication_name:
             medication_data = self._get_prescription_data(medication_name)
             if medication_data:
@@ -96,7 +269,7 @@ class MedicationSimulator:
             raise ValueError("duration must be >= peak_time")
         
         medication = {
-            'time': dose_hour,
+            'time': dose_minutes,  # Store as minutes since midnight
             'dosage': dosage,
             'medication_name': medication_name,
             'onset_time': onset_time,
@@ -112,7 +285,7 @@ class MedicationSimulator:
         self.medications.append(medication)
     
     def add_stimulant(self, dose_time: str, stimulant_name: str, component_name: str = None, 
-                      quantity: float = 1.0, custom_params: Dict = None):
+                       quantity: float = 1.0, custom_params: Dict = None):
         """
         Add a stimulant dose to the simulation
         
@@ -123,11 +296,10 @@ class MedicationSimulator:
             quantity: Quantity consumed (e.g., cups of coffee, cans of energy drink)
             custom_params: Override default parameters if provided
         """
-        # Parse time string
-        hour, minute = map(int, dose_time.split(':'))
-        dose_hour = hour + minute / 60.0
+        # Convert time to minutes since midnight
+        dose_minutes = self._time_to_minutes(dose_time)
         
-        # Load stimulant data
+        # Load stimulant data from unified database
         stimulant_data = self._get_stimulant_data(stimulant_name, component_name)
         
         if not stimulant_data:
@@ -162,7 +334,7 @@ class MedicationSimulator:
         peak_effect *= quantity
         
         stimulant = {
-            'time': dose_hour,
+            'time': dose_minutes,  # Store as minutes since midnight
             'stimulant_name': stimulant_name,
             'component_name': component_name,
             'quantity': quantity,
@@ -179,12 +351,11 @@ class MedicationSimulator:
         self.stimulants.append(stimulant)
     
     def _get_stimulant_data(self, stimulant_name: str, component_name: str = None) -> Optional[Dict]:
-        """Get stimulant data from the JSON file"""
+        """Get stimulant data from the unified medications.json file"""
         try:
-            with open('meds_stimulants.json', 'r') as f:
-                data = json.load(f)
+            data = self._load_medications_data()
             
-            stimulants = data.get('common_stimulants', {})
+            stimulants = data.get('stimulants', {}).get('common_stimulants', {})
             
             if stimulant_name not in stimulants:
                 return None
@@ -207,23 +378,24 @@ class MedicationSimulator:
             
             return None
             
-        except (FileNotFoundError, json.JSONDecodeError):
+        except Exception as e:
+            print(f"Error loading stimulant data: {e}")
             return None
     
     def _get_prescription_data(self, medication_name: str) -> Optional[Dict]:
-        """Get prescription medication data from the JSON file"""
+        """Get prescription medication data from the unified medications.json file"""
         try:
-            with open('meds_stimulants.json', 'r') as f:
-                data = json.load(f)
+            data = self._load_medications_data()
             
-            medications = data.get('prescription_stimulants', {})
+            medications = data.get('stimulants', {}).get('prescription_stimulants', {})
             
             if medication_name not in medications:
                 return None
             
             return medications[medication_name]
             
-        except (FileNotFoundError, json.JSONDecodeError):
+        except Exception as e:
+            print(f"Error loading prescription data: {e}")
             return None
     
     def get_all_doses(self) -> List[Dict]:
@@ -245,91 +417,6 @@ class MedicationSimulator:
         all_doses = self.get_all_doses()
         for i, dose in enumerate(all_doses):
             dose['id'] = i
-    
-    def generate_effect_curve(self, dose: Dict) -> np.ndarray:
-        """Generate a bell-shaped effect curve for a single dose"""
-        effect = np.zeros_like(self.time_points)
-        
-        # Create trapezoid curve: rise → plateau → fall
-        onset_time = dose['onset_time']      # Time from dose to onset
-        peak_time = dose['peak_time']        # Time from dose to peak effect
-        duration = dose['duration']          # Total duration
-        
-        # Calculate curve phases using correct parameters
-        # Rise phase: 0 to peak_time (linear increase)
-        # Plateau phase: peak_time to (peak_time + peak_duration) (maintain peak effect)
-        # Fall phase: (peak_time + peak_duration) to duration (linear decrease)
-        
-        # Calculate fall start based on peak duration (starts at peak_time, not onset_time)
-        fall_start = peak_time + dose.get('peak_duration', 1.0)  # Default to 1 hour if not specified
-        
-        # Normalize effect per dose (1.0 = full effect of that dose)
-        if dose['type'] == 'medication':
-            # For medications, normalize to dosage (20mg = 1.0 effect)
-            peak_effect = dose['dosage'] / 20.0
-        else:
-            # For stimulants, use the stored peak_effect (already scaled by quantity)
-            peak_effect = dose['peak_effect']
-        
-        # Calculate time since dose for each time point
-        for i, t in enumerate(self.time_points):
-            # Calculate time since dose, handling midnight wrapping
-            if t >= dose['time']:
-                # Same day
-                time_since_dose = t - dose['time']
-            else:
-                # Next day (wrapped around midnight)
-                time_since_dose = (24 - dose['time']) + t
-            
-            # Only apply effect within duration window (with small tolerance for rounding)
-            if 0 <= time_since_dose < (duration + 0.1):
-                if time_since_dose < peak_time:
-                    # Rise phase (0 to peak): linear increase from 0 to peak_effect
-                    effect[i] = (time_since_dose / peak_time) * peak_effect
-                elif time_since_dose < fall_start:
-                    # Plateau phase: maintain peak effect
-                    effect[i] = peak_effect
-                else:
-                    # Fall phase (peak to 0): linear decrease from peak_effect to 0
-                    fall_progress = (time_since_dose - fall_start) / (duration - fall_start)
-                    # Clamp fall progress to prevent negative values
-                    fall_progress = max(0, min(1, fall_progress))
-                    effect[i] = peak_effect * (1 - fall_progress)
-        
-        return effect
-    
-    def generate_daily_timeline(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate combined daily effect timeline from all doses"""
-        if not self.medications and not self.stimulants:
-            return self.time_points, np.zeros_like(self.time_points)
-        
-        # Generate individual curves for all doses
-        individual_curves = []
-        for dose in self.get_all_doses():
-            curve = self.generate_effect_curve(dose)
-            individual_curves.append(curve)
-        
-        # Combine curves (additive effect)
-        combined_effect = np.sum(individual_curves, axis=0)
-        
-        # Apply Hill saturation to prevent unlimited additive effects
-        combined_effect = self.apply_hill_saturation(combined_effect)
-        
-        return self.time_points, combined_effect
-    
-    def get_individual_curves(self) -> List[Tuple[str, np.ndarray]]:
-        """Get individual effect curves for plotting"""
-        curves = []
-        for dose in self.get_all_doses():
-            curve = self.generate_effect_curve(dose)
-            if dose['type'] == 'medication':
-                label = f"{dose['dosage']}mg {dose.get('medication_name', 'medication')}"
-            else:
-                label = f"{dose['quantity']}x {dose['stimulant_name']}"
-                if dose.get('component_name'):
-                    label += f" ({dose['component_name']})"
-            curves.append((label, curve))
-        return curves
     
     def find_sleep_windows(self, effect_level: np.ndarray, threshold: float = None) -> List[Tuple[float, float]]:
         """Find time windows suitable for sleep (effect below threshold)"""
