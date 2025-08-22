@@ -334,14 +334,14 @@ class MedicationSimulator:
         
         # Convert minutes to hours
         onset_time = stimulant_data['onset_min'] / 60.0
-        peak_time = stimulant_data['peak_time_min'] / 60.0
+        peak_time = stimulant_data['t_peak_min'] / 60.0  # Fixed field name
         duration = stimulant_data['duration_min'] / 60.0
         # peak_effect should be based on quantity, not duration
         peak_effect = quantity  # Base effect on quantity consumed
         
         # Store additional parameters for curve generation
         peak_duration = stimulant_data['peak_duration_min'] / 60.0
-        wear_off_duration = stimulant_data['wear_off_duration_min'] / 60.0
+        wear_off_duration = stimulant_data['wear_off_min'] / 60.0  # Fixed field name
         
         # Override with custom parameters if provided
         if custom_params:
@@ -366,12 +366,13 @@ class MedicationSimulator:
             'stimulant_name': stimulant_name,
             'component_name': component_name,
             'quantity': quantity,
-            'onset_time': onset_time,
-            'peak_time': peak_time,
-            'duration': duration,
             'peak_effect': peak_effect,
-            'peak_duration': peak_duration,
-            'wear_off_duration': wear_off_duration,
+            # Store standardized minute values for PK curve generation
+            'onset_min': stimulant_data['onset_min'],
+            't_peak_min': stimulant_data['t_peak_min'],
+            'duration_min': stimulant_data['duration_min'],
+            'peak_duration_min': stimulant_data['peak_duration_min'],
+            'wear_off_min': stimulant_data['wear_off_min'],
             'type': 'stimulant',
             'id': len(self.medications) + len(self.stimulants)
         }
