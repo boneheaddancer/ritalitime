@@ -546,6 +546,30 @@ def adhd_medications_app():
                 st.success(f"Loaded profile: {selected_profile}")
                 st.rerun()
         
+        # Summary information
+        st.header("📋 Summary")
+        
+        # Medication summary
+        medications = st.session_state.simulator.get_medication_summary()
+        if medications:
+            st.write("**💊 Medications:**")
+            for med in medications:
+                dose_time_str = st.session_state.simulator._minutes_to_time(med['time'])
+                st.write(f"• {med['dosage']}mg {med.get('medication_name', 'medication')} at {dose_time_str}")
+        
+        # Stimulant summary
+        stimulants = st.session_state.simulator.get_stimulant_summary()
+        if stimulants:
+            st.write("**☕ Stimulants:**")
+            for stim in stimulants:
+                dose_time_str = st.session_state.simulator._minutes_to_time(stim['time'])
+                st.write(f"• {stim['quantity']}x {stim['stimulant_name']} at {dose_time_str}")
+                if stim.get('component_name'):
+                    st.write(f"  ({stim['component_name']})")
+        
+        if not medications and not stimulants:
+            st.info("No doses added yet.")
+        
         # Dose management
         st.header("🗑️ Dose Management")
         
@@ -590,179 +614,9 @@ def adhd_medications_app():
         if sleep_threshold != st.session_state.simulator.sleep_threshold:
             st.session_state.simulator.sleep_threshold = sleep_threshold
             st.rerun()
-    
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        # Generate timeline (no caching to ensure real-time updates)
-        time_points, combined_effect = st.session_state.simulator.generate_daily_timeline()
         
-        if len(time_points) > 0 and len(combined_effect) > 0:
-            # Check for failed doses and show warnings
-            failed_doses = st.session_state.simulator.get_failed_doses()
-            if failed_doses:
-                st.warning(f"⚠️ **Warning**: {len(failed_doses)} dose(s) failed to generate curves:")
-                for dose in failed_doses:
-                    if dose['type'] == 'medication':
-                        st.write(f"  • {dose['dosage']}mg {dose.get('medication_name', 'medication')} at {st.session_state.simulator._minutes_to_time(dose['time'])}")
-                    else:
-                        st.write(f"  • {dose['quantity']}x {dose['stimulant_name']} at {st.session_state.simulator._minutes_to_time(dose['time'])}")
-                st.write("Check the console for detailed error information.")
-            
-            # Create enhanced plot with individual curves toggle
-            st.subheader("📊 Daily Effect Timeline")
-            
-            # Toggle for showing individual curves
-            show_individual_curves = st.checkbox("Show Individual Component Curves", value=False, key="show_curves")
-            
-            # Create figure
-            fig = go.Figure()
-            
-            # Add individual curves if requested
-            if show_individual_curves:
-                individual_curves = st.session_state.simulator.get_individual_curves()
-                for label, curve in individual_curves:
-                    fig.add_trace(go.Scatter(
-                        x=time_points,
-                        y=curve,
-                        mode='lines',
-                        name=f"Component: {label}",
-                        line=dict(color='lightgray', width=1, dash='dot'),
-                        opacity=0.3,
-                        showlegend=True,
-                        hovertemplate=f"<b>{label}</b><br>Time: %{{x:.1f}}h<br>Effect: %{{y:.3f}}<extra></extra>"
-                    ))
-            
-            # Add combined effect curve
-            fig.add_trace(go.Scatter(
-                x=time_points,
-                y=combined_effect,
-                mode='lines',
-                name='Combined Effect',
-                line=dict(color='blue', width=3),
-                hovertemplate="<b>Combined Effect</b><br>Time: %{x:.1f}h<br>Effect: %{y:.3f}<extra></extra>"
-            ))
-            
-            # Add sleep threshold line
-            fig.add_hline(
-                y=sleep_threshold,
-                line_dash="dash",
-                line_color="red",
-                annotation_text=f"Sleep Threshold ({sleep_threshold:.2f})",
-                annotation_position="top right"
-            )
-            
-            # Add vertical rules for key time points
-            all_doses = st.session_state.simulator.get_all_doses()
-            for dose in all_doses:
-                dose_time_hours = st.session_state.simulator._minutes_to_decimal_hours(dose['time'])
-                
-                # Calculate Tmax (peak time)
-                if dose['type'] == 'medication':
-                    tmax = dose_time_hours + dose.get('peak_time', 2.0)
-                else:
-                    tmax = dose_time_hours + dose.get('peak_time', 1.0)
-                
-                # Add Tmax vertical line
-                fig.add_vline(
-                    x=tmax,
-                    line_dash="dot",
-                    line_color="orange",
-                    annotation_text=f"Tmax: {format_time_hours_minutes(tmax)}",
-                    annotation_position="top"
-                )
-                
-                # Add dose time vertical line
-                fig.add_vline(
-                    x=dose_time_hours,
-                    line_dash="solid",
-                    line_color="green",
-                    annotation_text=f"Dose: {format_time_hours_minutes(dose_time_hours)}",
-                    annotation_position="bottom"
-                )
-            
-            # Update layout
-            fig.update_layout(
-                title="Medication & Stimulant Effect Timeline",
-                xaxis_title="Time (hours)",
-                yaxis_title="Effect Level",
-                hovermode='x unified',
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-            
-            # Update x-axis to show time labels
-            fig.update_xaxes(
-                tickmode='array',
-                tickvals=list(range(0, 25, 2)),
-                ticktext=[f"{h:02d}:00" for h in range(0, 25, 2)]
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Sleep window analysis
-            sleep_windows = st.session_state.simulator.find_sleep_windows(combined_effect)
-            if sleep_windows:
-                st.subheader("😴 Sleep Windows")
-                sleep_info = []
-                for start, end in sleep_windows:
-                    duration = end - start
-                    sleep_info.append({
-                        "Start Time": format_time_hours_minutes(start),
-                        "End Time": format_time_hours_minutes(end),
-                        "Duration": format_duration_hours_minutes(duration)
-                    })
-                
-                sleep_df = pd.DataFrame(sleep_info)
-                st.dataframe(sleep_df, use_container_width=True)
-            else:
-                st.info("No suitable sleep windows found with current threshold.")
-        
-        else:
-            # Check if there are doses but they all failed
-            all_doses = st.session_state.simulator.get_all_doses()
-            if all_doses:
-                failed_doses = st.session_state.simulator.get_failed_doses()
-                if len(failed_doses) == len(all_doses):
-                    st.error("❌ **Error**: All doses failed to generate curves. Check the console for error details.")
-                else:
-                    st.info("Add some medications or stimulants to see the timeline!")
-            else:
-                st.info("Add some medications or stimulants to see the timeline!")
-    
-    with col2:
-        # Summary information
-        st.subheader("📋 Summary")
-        
-        # Medication summary
-        medications = st.session_state.simulator.get_medication_summary()
-        if medications:
-            st.write("**💊 Medications:**")
-            for med in medications:
-                dose_time_str = st.session_state.simulator._minutes_to_time(med['time'])
-                st.write(f"• {med['dosage']}mg {med.get('medication_name', 'medication')} at {dose_time_str}")
-        
-        # Stimulant summary
-        stimulants = st.session_state.simulator.get_stimulant_summary()
-        if stimulants:
-            st.write("**☕ Stimulants:**")
-            for stim in stimulants:
-                dose_time_str = st.session_state.simulator._minutes_to_time(stim['time'])
-                st.write(f"• {stim['quantity']}x {stim['stimulant_name']} at {dose_time_str}")
-                if stim.get('component_name'):
-                    st.write(f"  ({stim['component_name']})")
-        
-        if not medications and not stimulants:
-            st.info("No doses added yet.")
-        
-        # Export/Import functionality
-        st.subheader("💾 Data Management")
+        # Data Management
+        st.header("💾 Data Management")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -771,15 +625,216 @@ def adhd_medications_app():
                 st.success(f"Exported to {filename}")
         
         with col2:
-            uploaded_file = st.file_uploader("📥 Import Schedule", type=['json'])
+            # Use a unique key that changes on each rerun to prevent endless loop
+            upload_key = f"schedule_uploader_{st.session_state.get('upload_counter', 0)}"
+            uploaded_file = st.file_uploader("📥 Import Schedule", type=['json'], key=upload_key)
             if uploaded_file is not None:
                 try:
                     data = json.load(uploaded_file)
                     st.session_state.simulator.import_schedule(data)
                     st.success("Schedule imported successfully!")
+                    # Increment counter to force new uploader instance
+                    st.session_state.upload_counter = st.session_state.get('upload_counter', 0) + 1
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error importing schedule: {e}")
+                    # Increment counter even on error
+                    st.session_state.upload_counter = st.session_state.get('upload_counter', 0) + 1
+                    st.rerun()
+    
+    # Main content area - full width for timeline
+    # Generate timeline (no caching to ensure real-time updates)
+    time_points, combined_effect = st.session_state.simulator.generate_daily_timeline()
+    
+    if len(time_points) > 0 and len(combined_effect) > 0:
+        # Debug: Show timeline information
+        st.info(f"📊 **Timeline Info**: {len(time_points)} points, range: {time_points[0]:.1f}h to {time_points[-1]:.1f}h")
+        
+        # Check for failed doses and show warnings
+        failed_doses = st.session_state.simulator.get_failed_doses()
+        if failed_doses:
+            st.warning(f"⚠️ **Warning**: {len(failed_doses)} dose(s) failed to generate curves:")
+            for dose in failed_doses:
+                if dose['type'] == 'medication':
+                    st.write(f"  • {dose['dosage']}mg {dose.get('medication_name', 'medication')} at {st.session_state.simulator._minutes_to_time(dose['time'])}")
+                else:
+                    st.write(f"  • {dose['quantity']}x {dose['stimulant_name']} at {st.session_state.simulator._minutes_to_time(dose['time'])}")
+            st.write("Check the console for detailed error information.")
+        
+        # Create enhanced plot with individual curves toggle
+        st.subheader("📊 Daily Effect Timeline")
+        
+        # Toggle for showing individual curves
+        show_individual_curves = st.checkbox("Show Individual Component Curves", value=False, key="show_individual_curves_toggle")
+        
+        # Create figure
+        fig = go.Figure()
+        
+        # Add individual curves if requested
+        if show_individual_curves:
+            try:
+                individual_curves = st.session_state.simulator.get_individual_curves()
+                if individual_curves:
+                    for label, curve in individual_curves:
+                        if len(curve) == len(time_points):
+                            fig.add_trace(go.Scatter(
+                                x=time_points,
+                                y=curve,
+                                mode='lines',
+                                name=f"Component: {label}",
+                                line=dict(color='rgba(128, 128, 128, 0.6)', width=0.8, dash='dot'),
+                                opacity=0.4,
+                                showlegend=True,
+                                hovertemplate=f"<b>{label}</b><br>Time: %{{x:.1f}}h<br>Effect: %{{y:.3f}}<extra></extra>"
+                            ))
+                        else:
+                            st.warning(f"Curve length mismatch for {label}: expected {len(time_points)}, got {len(curve)}")
+                else:
+                    st.info("No individual curves available to display")
+            except Exception as e:
+                st.error(f"Error displaying individual curves: {e}")
+                print(f"Error in individual curves: {e}")
+        
+        # Add combined effect curve with transparent fill and thinner line
+        fig.add_trace(go.Scatter(
+            x=time_points,
+            y=combined_effect,
+            mode='lines',
+            name='Combined Effect',
+            line=dict(color='#1f77b4', width=1.5),
+            fill='tonexty',
+            fillcolor='rgba(31, 119, 180, 0.1)',
+            hovertemplate="<b>Combined Effect</b><br>Time: %{x:.1f}h<br>Effect: %{y:.3f}<extra></extra>"
+        ))
+        
+        # Add sleep threshold line
+        fig.add_hline(
+            y=sleep_threshold,
+            line_dash="dash",
+            line_color="red",
+            annotation_text=f"Sleep Threshold ({sleep_threshold:.2f})",
+            annotation_position="top right"
+        )
+        
+        # Add vertical rules for key time points
+        all_doses = st.session_state.simulator.get_all_doses()
+        for dose in all_doses:
+            dose_time_hours = st.session_state.simulator._minutes_to_decimal_hours(dose['time'])
+            
+            # Calculate Tmax (peak time)
+            if dose['type'] == 'medication':
+                tmax = dose_time_hours + dose.get('peak_time', 2.0)
+            else:
+                tmax = dose_time_hours + dose.get('peak_time', 1.0)
+            
+            # Add Tmax vertical line
+            fig.add_vline(
+                x=tmax,
+                line_dash="dot",
+                line_color="orange",
+                annotation_text=f"Tmax: {format_time_hours_minutes(tmax)}",
+                annotation_position="top"
+            )
+            
+            # Add dose time vertical line
+            fig.add_vline(
+                x=dose_time_hours,
+                line_dash="solid",
+                line_color="green",
+                annotation_text=f"Dose: {format_time_hours_minutes(dose_time_hours)}",
+                annotation_position="bottom"
+            )
+        
+        # Update layout with improved styling
+        fig.update_layout(
+            title=dict(
+                text="Medication & Stimulant Effect Timeline",
+                font=dict(size=18, color='#2c3e50')
+            ),
+            xaxis_title=dict(
+                text="Time (hours from midnight)",
+                font=dict(size=14, color='#34495e')
+            ),
+            yaxis_title=dict(
+                text="Effect Level",
+                font=dict(size=14, color='#34495e')
+            ),
+            hovermode='x unified',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+                bgcolor='rgba(255,255,255,0.8)',
+                bordercolor='rgba(0,0,0,0.1)',
+                borderwidth=1
+            )
+        )
+        
+        # Update x-axis to show time labels with improved styling
+        # Handle dynamic timeline that may not start at 00:00
+        min_hours = float(np.min(time_points))  # Start time of timeline
+        max_hours = float(np.max(time_points))  # End time of timeline
+        timeline_range = max_hours - min_hours
+        
+        print(f"DEBUG: Timeline range: {min_hours:.2f}h to {max_hours:.2f}h (span: {timeline_range:.2f}h)")
+        
+        # Generate appropriate tick marks based on timeline span
+        if timeline_range <= 8:
+            # Short timeline: show every hour
+            tickvals = list(range(int(min_hours), int(max_hours) + 1, 1))
+            ticktext = [f"{h:02d}:00" for h in tickvals]
+        elif timeline_range <= 24:
+            # Medium timeline: show every 2 hours
+            tickvals = list(range(int(min_hours), int(max_hours) + 1, 2))
+            ticktext = [f"{h:02d}:00" for h in tickvals]
+        else:
+            # Long timeline: show every 4 hours
+            tickvals = list(range(int(min_hours), int(max_hours) + 1, 4))
+            ticktext = []
+            for h in tickvals:
+                if h < 24:
+                    ticktext.append(f"{h:02d}:00")
+                else:
+                    # For hours beyond 24, show as "Day 2: 00:00", "Day 2: 04:00", etc.
+                    day = (h // 24) + 1
+                    hour = h % 24
+                    ticktext.append(f"Day {day}: {hour:02d}:00")
+        
+        print(f"DEBUG: Dynamic timeline ticks: {tickvals} -> {ticktext}")
+        
+        fig.update_xaxes(
+            tickmode='array',
+            tickvals=tickvals,
+            ticktext=ticktext,
+            gridcolor='rgba(0,0,0,0.1)',
+            linecolor='rgba(0,0,0,0.2)',
+            tickfont=dict(size=11, color='#34495e')
+        )
+        
+        # Update y-axis with improved styling
+        fig.update_yaxes(
+            gridcolor='rgba(0,0,0,0.1)',
+            linecolor='rgba(0,0,0,0.2)',
+            tickfont=dict(size=11, color='#34495e')
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    else:
+        # Check if there are doses but they all failed
+        all_doses = st.session_state.simulator.get_all_doses()
+        if all_doses:
+            failed_doses = st.session_state.simulator.get_failed_doses()
+            if len(failed_doses) == len(all_doses):
+                st.error("❌ **Error**: All doses failed to generate curves. Check the console for error details.")
+            else:
+                st.info("Add some medications or stimulants to see the timeline!")
+        else:
+            st.info("Add some medications or stimulants to see the timeline!")
 
 def painkillers_app():
     st.title("💊 Painkiller Timeline Simulator")
@@ -961,47 +1016,91 @@ def painkillers_app():
         if st.session_state.painkiller_doses and st.button("🗑️ Clear All Painkillers"):
             st.session_state.painkiller_doses.clear()
             st.rerun()
+        
+        # Data Management for painkillers
+        st.header("💾 Data Management")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📤 Export Painkiller Schedule", key="export_pk"):
+                # Create export data
+                export_data = {
+                    'painkiller_doses': st.session_state.painkiller_doses,
+                    'export_date': datetime.now().isoformat(),
+                    'app_type': 'painkillers'
+                }
+                
+                # Convert to JSON string
+                json_str = json.dumps(export_data, indent=2)
+                
+                # Create download button
+                st.download_button(
+                    label="📥 Download JSON",
+                    data=json_str,
+                    file_name=f"painkiller_schedule_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+        
+        with col2:
+            # Use a unique key that changes on each rerun to prevent endless loop
+            upload_key = f"pk_uploader_{st.session_state.get('pk_upload_counter', 0)}"
+            uploaded_file = st.file_uploader("📥 Import Schedule", type=['json'], key=upload_key)
+            if uploaded_file is not None:
+                try:
+                    data = json.load(uploaded_file)
+                    if 'painkiller_doses' in data:
+                        st.session_state.painkiller_doses = data['painkiller_doses']
+                        st.success("Painkiller schedule imported successfully!")
+                        # Increment counter to force new uploader instance
+                        st.session_state.pk_upload_counter = st.session_state.get('pk_upload_counter', 0) + 1
+                        st.rerun()
+                    else:
+                        st.error("Invalid file format - missing painkiller_doses")
+                except Exception as e:
+                    st.error(f"Error importing schedule: {e}")
+                    # Increment counter even on error
+                    st.session_state.pk_upload_counter = st.session_state.get('pk_upload_counter', 0) + 1
+                    st.rerun()
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
+    # Generate painkiller timeline
+    time_points, pain_level = generate_painkiller_timeline()
+    
+    # Create painkiller plot
+    fig = create_painkiller_plot(time_points, pain_level)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Pain relief windows
+    pain_relief_windows = find_pain_relief_windows(time_points, pain_level)
+    
+    if any(pain_relief_windows.values()):
+        st.subheader("😌 Pain Relief Windows")
+        
+        # Display relief windows by category
+        for relief_type, windows in pain_relief_windows.items():
+            if windows:
+                relief_label = relief_type.title()
+                if relief_type == 'moderate':
+                    relief_icon = "🟠"
+                    relief_desc = "30% pain reduction"
+                elif relief_type == 'strong':
+                    relief_icon = "🟢"
+                    relief_desc = "60% pain reduction"
+                else:  # complete
+                    relief_icon = "🔵"
+                    relief_desc = "80% pain reduction"
+                
+                st.markdown(f"**{relief_icon} {relief_label} Relief ({relief_desc})**")
+                for start, end in windows:
+                    start_str = format_time_hours_minutes(start)
+                    end_str = format_time_hours_minutes(end)
+                    st.info(f"**{start_str}** to **{end_str}** (Duration: {format_duration_hours_minutes(end-start)})")
+    else:
+        st.warning("⚠️ No significant pain relief windows found")
+    
+    # Statistics and insights below timeline
+    col1, col2 = st.columns([1, 1])
     
     with col1:
-        # Generate painkiller timeline
-        time_points, pain_level = generate_painkiller_timeline()
-        
-        # Create painkiller plot
-        fig = create_painkiller_plot(time_points, pain_level)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Pain relief windows
-        pain_relief_windows = find_pain_relief_windows(time_points, pain_level)
-        
-        if any(pain_relief_windows.values()):
-            st.subheader("😌 Pain Relief Windows")
-            
-            # Display relief windows by category
-            for relief_type, windows in pain_relief_windows.items():
-                if windows:
-                    relief_label = relief_type.title()
-                    if relief_type == 'moderate':
-                        relief_icon = "🟠"
-                        relief_desc = "30% pain reduction"
-                    elif relief_type == 'strong':
-                        relief_icon = "🟢"
-                        relief_desc = "60% pain reduction"
-                    else:  # complete
-                        relief_icon = "🔵"
-                        relief_desc = "80% pain reduction"
-                    
-                    st.markdown(f"**{relief_icon} {relief_label} Relief ({relief_desc})**")
-                    for start, end in windows:
-                        start_str = format_time_hours_minutes(start)
-                        end_str = format_time_hours_minutes(end)
-                        st.info(f"**{start_str}** to **{end_str}** (Duration: {format_duration_hours_minutes(end-start)})")
-        else:
-            st.warning("⚠️ No significant pain relief windows found")
-    
-    with col2:
         # Statistics and insights
         st.subheader("📊 Pain Relief Statistics")
         
