@@ -126,10 +126,15 @@ class MedicationSimulator:
                 # Convert t to minutes for comparison
                 current_time_minutes = int(t * 60)
                 
-                # Calculate time difference (no midnight wrapping needed in 24-hour simulation)
-                time_since_dose = current_time_minutes - dose['time']
+                # Calculate time difference with midnight wrapping for 24-hour simulation
+                if current_time_minutes >= dose['time']:
+                    # Same day: time since dose
+                    time_since_dose = current_time_minutes - dose['time']
+                else:
+                    # Next day: wrap around midnight
+                    time_since_dose = (1440 - dose['time']) + current_time_minutes
                 
-                # Only process if we're after the dose time and within duration
+                # Process if within duration (allows effects to cross midnight)
                 if 0 <= time_since_dose <= duration_min:
                     # Convert to minutes for comparison with PK curve
                     time_since_dose_minutes = time_since_dose
