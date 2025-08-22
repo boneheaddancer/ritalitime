@@ -19,6 +19,8 @@ class MedicationSimulator:
         self.emax = 1.0  # Maximum combined effect (ceiling)
         self.ec50 = 0.5  # Concentration for 50% of max effect
         self.hill_coefficient = 1.5  # Hill coefficient for saturation curve
+        # Track failed doses from last timeline generation
+        self.last_failed_doses = []
     
     def _time_to_minutes(self, time_str: str) -> int:
         """Convert HH:MM time string to minutes since midnight (0-1439)"""
@@ -61,25 +63,27 @@ class MedicationSimulator:
     
     def generate_pk_curve(self, dose: Dict) -> np.ndarray:
         """Generate PK-based concentration curve for a single dose using pk_models.py"""
+        print(f"=== generate_pk_curve CALLED ===")
         effect = np.zeros_like(self.time_points)
         
         # Debug: print dose structure
         print(f"Generating PK curve for dose: {dose}")
         
-        # Get PK parameters from dose - use the stored values that were converted to hours
-        onset_time = dose.get('onset_time', 1.0)  # Already in hours
-        peak_time = dose.get('peak_time', 2.0)    # Already in hours
-        duration = dose.get('duration', 8.0)      # Already in hours
+        # Get PK parameters from dose - use the stored minute values
+        onset_min = dose.get('onset_min', 60)  # Already in minutes
+        t_peak_min = dose.get('t_peak_min', 120)  # Already in minutes
+        duration_min = dose.get('duration_min', 480)  # Already in minutes
         
-        # Convert to minutes for PK function
-        onset_min = onset_time * 60
-        t_peak_min = peak_time * 60
-        duration_min = duration * 60
+        # Convert to hours for debug output
+        onset_time = onset_min / 60.0
+        peak_time = t_peak_min / 60.0
+        duration = duration_min / 60.0
         
         print(f"PK parameters: onset={onset_time}h ({onset_min}min), peak={peak_time}h ({t_peak_min}min), duration={duration}h ({duration_min}min)")
         
         # Generate PK curve using the concentration_curve function
         try:
+            print(f"Calling concentration_curve with: onset_min={onset_min}, t_peak_min={t_peak_min}, duration_min={duration_min}")
             pk_curve = concentration_curve(
                 dose=1.0,  # Normalized dose (curve will be normalized to peak=1.0)
                 onset_min=onset_min,
@@ -88,6 +92,7 @@ class MedicationSimulator:
                 minutes=1440,  # 24 hours
                 step=6  # 6-minute intervals to match our time grid
             )
+            print(f"concentration_curve returned: {len(pk_curve)} points")
             
             # Extract time points and concentrations
             pk_times = [t/60.0 for t, _ in pk_curve]  # Convert minutes to hours
@@ -104,46 +109,73 @@ class MedicationSimulator:
             # Debug output
             print(f"PK curve generated: {len(pk_times)} points, max concentration: {max(pk_concentrations) if pk_concentrations else 0}")
             print(f"Dose intensity: {dose_intensity}")
+            print(f"Time points: {len(self.time_points)}, from {self.time_points[0]}h to {self.time_points[-1]}h")
+            print(f"Dose time: {dose['time']} minutes ({dose['time']/60:.1f}h)")
             
             # Interpolate PK curve to our time grid and apply dose intensity
+            print(f"Starting effect calculation loop for {len(self.time_points)} time points")
+            effect_points_calculated = 0
+            
             for i, t in enumerate(self.time_points):
-                # Calculate time since dose, handling midnight wrapping
-                dose_time_minutes = dose['time']  # Already in minutes
-                current_time_minutes = self._decimal_hours_to_minutes(t)
+                # Calculate time since dose
+                # t is in hours (0-24), dose['time'] is in minutes (0-1439)
+                # Convert t to minutes for comparison
+                current_time_minutes = int(t * 60)
                 
-                # Calculate time difference with midnight wrapping
-                if current_time_minutes >= dose_time_minutes:
-                    time_since_dose = current_time_minutes - dose_time_minutes
-                else:
-                    time_since_dose = (1440 - dose_time_minutes) + current_time_minutes
+                # Calculate time difference (no midnight wrapping needed in 24-hour simulation)
+                time_since_dose = current_time_minutes - dose['time']
                 
-                # Convert to hours for comparison with PK curve
-                time_since_dose_hours = time_since_dose / 60.0
-                
-                # Find the closest PK time point
-                if time_since_dose_hours <= 24.0:  # Within 24 hours
-                    # Find closest time index in PK curve
-                    pk_index = min(len(pk_times) - 1, int(time_since_dose_hours / 0.1))  # 0.1 hour steps
+                # Only process if we're after the dose time and within duration
+                if 0 <= time_since_dose <= duration_min:
+                    # Convert to minutes for comparison with PK curve
+                    time_since_dose_minutes = time_since_dose
                     
-                    if pk_index < len(pk_concentrations) and pk_index >= 0:
-                        effect[i] = pk_concentrations[pk_index] * dose_intensity
-                        
+                    # Find the closest PK time point
+                    # pk_curve returns (minutes, concentration) pairs
+                    # Find the closest time match
+                    closest_index = 0
+                    min_diff = float('inf')
+                    
+                    for j, (pk_time_min, pk_conc) in enumerate(pk_curve):
+                        diff = abs(pk_time_min - time_since_dose_minutes)
+                        if diff < min_diff:
+                            min_diff = diff
+                            closest_index = j
+                    
+                    # Apply the concentration at the closest time point
+                    if closest_index < len(pk_concentrations):
+                        effect[i] = pk_concentrations[closest_index] * dose_intensity
+                        effect_points_calculated += 1
+            
+            print(f"Effect calculation complete: {effect_points_calculated} points calculated")
+            
+            # Debug: check what effect values were generated
+            max_effect = np.max(effect)
+            non_zero_count = np.count_nonzero(effect)
+            print(f"Generated effect curve: max={max_effect:.6f}, non-zero points={non_zero_count}/{len(effect)}")
+            
+            # Return the generated effect curve
+            return effect
+            
         except Exception as e:
-            # Fallback to simple curve if PK generation fails
+            # Log the specific error for debugging
             print(f"PK curve generation failed for dose {dose.get('id', 'unknown')}: {e}")
-            effect = self._generate_fallback_curve(dose)
-        
-        return effect
+            print(f"Dose data: {dose}")
+            
+            # Return zero effect instead of misleading fallback data
+            # This ensures users see when something is wrong rather than fake curves
+            print(f"Returning zero effect for failed dose {dose.get('id', 'unknown')}")
+            return np.zeros_like(self.time_points)
     
     def _generate_fallback_curve(self, dose: Dict) -> np.ndarray:
         """Fallback curve generation if PK models fail"""
         effect = np.zeros_like(self.time_points)
         
         # Simple trapezoid curve as fallback
-        onset_time = dose.get('onset_time', 1.0)
-        peak_time = dose.get('peak_time', 2.0)
-        duration = dose.get('duration', 8.0)
-        peak_duration = dose.get('peak_duration', 1.0)
+        onset_time = dose.get('onset_min', 60) / 60.0  # Convert minutes to hours
+        peak_time = dose.get('t_peak_min', 120) / 60.0  # Convert minutes to hours
+        duration = dose.get('duration_min', 480) / 60.0  # Convert minutes to hours
+        peak_duration = dose.get('peak_duration_min', 60) / 60.0  # Convert minutes to hours
         
         if dose['type'] == 'medication':
             peak_effect = dose['dosage'] / 20.0
@@ -184,10 +216,32 @@ class MedicationSimulator:
         
         # Generate individual PK curves for all doses
         individual_curves = []
+        failed_doses = []
+        
         for dose in self.get_all_doses():
-            curve = self.generate_pk_curve(dose)
-            print(f"Generated curve for dose {dose.get('id', 'unknown')}: max effect = {np.max(curve) if len(curve) > 0 else 0}")
-            individual_curves.append(curve)
+            try:
+                curve = self.generate_pk_curve(dose)
+
+                
+                if np.any(curve > 0):  # Check if curve has any effect
+                    individual_curves.append(curve)
+                    print(f"Generated curve for dose {dose.get('id', 'unknown')}: max effect = {np.max(curve)}")
+                else:
+                    failed_doses.append(dose)
+                    print(f"Warning: Dose {dose.get('id', 'unknown')} generated zero effect curve")
+
+            except Exception as e:
+                failed_doses.append(dose)
+                print(f"Error generating curve for dose {dose.get('id', 'unknown')}: {e}")
+        
+        # Store failed doses for later access
+        self.last_failed_doses = failed_doses
+        
+        # Report any failed doses
+        if failed_doses:
+            print(f"Warning: {len(failed_doses)} doses failed to generate curves")
+            for dose in failed_doses:
+                print(f"  - Failed dose: {dose}")
         
         # Combine curves using saturation model
         if len(individual_curves) == 1:
@@ -209,14 +263,18 @@ class MedicationSimulator:
         """Get individual PK curves for plotting"""
         curves = []
         for dose in self.get_all_doses():
-            curve = self.generate_pk_curve(dose)
-            if dose['type'] == 'medication':
-                label = f"{dose['dosage']}mg {dose.get('medication_name', 'medication')}"
-            else:
-                label = f"{dose['quantity']}x {dose['stimulant_name']}"
-                if dose.get('component_name'):
-                    label += f" ({dose['component_name']})"
-            curves.append((label, curve))
+            try:
+                curve = self.generate_pk_curve(dose)
+                if np.any(curve > 0):  # Only include curves with actual effect
+                    if dose['type'] == 'medication':
+                        label = f"{dose['dosage']}mg {dose.get('medication_name', 'medication')}"
+                    else:
+                        label = f"{dose['quantity']}x {dose['stimulant_name']}"
+                        if dose.get('component_name'):
+                            label += f" ({dose['component_name']})"
+                    curves.append((label, curve))
+            except Exception as e:
+                print(f"Skipping failed dose {dose.get('id', 'unknown')} in individual curves: {e}")
         return curves
     
     def add_medication(self, dose_time: str, dosage: float, 
@@ -282,10 +340,8 @@ class MedicationSimulator:
                 duration = custom_params['duration']
             if 'peak_effect' in custom_params:
                 peak_effect = custom_params['peak_effect']
-            if 'peak_duration' in custom_params:
-                peak_duration = custom_params['peak_duration']
-            if 'wear_off_duration' in custom_params:
-                wear_off_duration = custom_params['wear_off_duration']
+            # Note: peak_duration and wear_off_duration are not overridden by custom params
+            # They come from the medication data to maintain consistency
         
         # Validate parameters
         if peak_time < onset_time:
@@ -353,10 +409,8 @@ class MedicationSimulator:
                 duration = custom_params['duration']
             if 'peak_effect' in custom_params:
                 peak_effect = custom_params['peak_effect']
-            if 'peak_duration' in custom_params:
-                peak_duration = custom_params['peak_duration']
-            if 'wear_off_duration' in custom_params:
-                wear_off_duration = custom_params['wear_off_duration']
+            # Note: peak_duration and wear_off_duration are not overridden by custom params
+            # They come from the stimulant data to maintain consistency
         
         # Scale effect by quantity
         peak_effect *= quantity
@@ -494,6 +548,10 @@ class MedicationSimulator:
     def get_stimulant_summary(self) -> List[Dict]:
         """Get summary of all stimulants"""
         return self.stimulants.copy()
+    
+    def get_failed_doses(self) -> List[Dict]:
+        """Get list of doses that failed to generate curves from last timeline generation"""
+        return self.last_failed_doses.copy()
     
     def export_schedule(self, filename: str = None) -> str:
         """Export medication schedule to JSON"""

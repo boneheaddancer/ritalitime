@@ -14,6 +14,7 @@ print("Imports completed successfully")
 
 # Load unified medications file with error handling
 print("Attempting to load medications.json...")
+medications_data = {}  # Initialize as empty dict
 try:
     # Load the raw JSON data directly since it has a nested structure
     with open('medications.json', 'r') as f:
@@ -190,67 +191,63 @@ def adhd_medications_app():
             st.subheader("Add New Medication")
             
             # Load available prescription medications from unified database
-            try:
-                if st.session_state.medications_loaded:
-                    available_medications = list(medications_data['stimulants']['prescription_stimulants'].keys())
-                else:
-                    available_medications = ['ritalin_IR', 'ritalin_LA', 'concerta', 'adderall_IR', 'adderall_XR', 'vyvanse', 'dexedrine_IR', 'dexedrine_ER']
-            except:
-                available_medications = ['ritalin_IR', 'ritalin_LA', 'concerta', 'adderall_IR', 'adderall_XR', 'vyvanse', 'dexedrine_IR', 'dexedrine_ER']
+            available_medications = []
+            if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants'):
+                available_medications = list(medications_data['stimulants']['prescription_stimulants'].keys())
             
-            col1, col2 = st.columns(2)
-            with col1:
-                dose_time = st.time_input("Dose Time", value=time(8, 0), key="med_time")
-                medication_name = st.selectbox("Medication Type", available_medications, key="med_name")
-            with col2:
-                dosage = st.number_input("Dosage (mg)", min_value=1.0, max_value=100.0, value=20.0, step=1.0, key="med_dosage")
+            if not available_medications:
+                st.error("No medications available. Please check that medications.json is properly loaded.")
+            else:
+                col1, col2 = st.columns(2)
+                with col1:
+                    dose_time = st.time_input("Dose Time", value=time(8, 0), key="med_time")
+                    medication_name = st.selectbox("Medication Type", available_medications, key="med_name")
+                with col2:
+                    dosage = st.number_input("Dosage (mg)", min_value=1.0, max_value=100.0, value=20.0, step=1.0, key="med_dosage")
             
             # Show medication info if prescription medication is selected
-            if medication_name != 'Custom':
+            if medication_name and medication_name != 'Custom':
                 try:
-                    if st.session_state.medications_loaded:
+                    if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(medication_name):
                         med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
                         
                         # Convert minutes to hours for display
                         onset_hours = med_info['onset_min'] / 60.0
-                        peak_time_hours = med_info['peak_time_min'] / 60.0
+                        peak_time_hours = med_info['t_peak_min'] / 60.0
                         peak_duration_hours = med_info['peak_duration_min'] / 60.0
                         duration_hours = med_info['duration_min'] / 60.0
-                        wear_off_hours = med_info['wear_off_duration_min'] / 60.0
+                        wear_off_hours = med_info['wear_off_min'] / 60.0
                         
                         st.info(f"**{medication_name}**: Onset {format_time_hours_minutes(onset_hours)}, Peak at {format_time_hours_minutes(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
                     else:
                         st.warning("Medications data not loaded")
-                except:
-                    st.warning("Could not load medication information")
+                except Exception as e:
+                    st.warning(f"Could not load medication information: {str(e)}")
             
             # Advanced parameters (to override prescription defaults)
-            with st.expander("Advanced Parameters (Override Defaults)"):
-                # Get current values from JSON for prescription medication
-                try:
-                    if st.session_state.medications_loaded:
+            if medication_name:
+                with st.expander("Advanced Parameters (Override Defaults)"):
+                    # Get current values from JSON for prescription medication
+                    default_onset, default_peak, default_duration, default_effect = 1.0, 2.0, 8.0, 1.0
+                    if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(medication_name):
                         med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
                         
                         # Convert minutes to hours for default values
                         default_onset = med_info['onset_min'] / 60.0
-                        default_peak = med_info['peak_time_min'] / 60.0
+                        default_peak = med_info['t_peak_min'] / 60.0
                         default_duration = med_info['duration_min'] / 60.0
                         default_effect = med_info['peak_duration_min'] / 60.0
-                    else:
-                        default_onset, default_peak, default_duration, default_effect = 1.0, 2.0, 8.0, 1.0
-                except:
-                    default_onset, default_peak, default_duration, default_effect = 1.0, 2.0, 8.0, 1.0
-                
-                onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, default_onset, 0.1, key="med_onset")
-                peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, default_peak, 0.1, key="med_peak")
-                duration = st.slider("Duration (hours)", 4.0, 16.0, default_duration, 0.5, key="med_duration")
-                peak_effect = st.slider("Peak Effect", 0.1, 2.0, default_effect, 0.1, key="med_effect")
-                
-                # Show what values are being overridden
-                st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
-                st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
+                    
+                    onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, default_onset, 0.1, key="med_onset")
+                    peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, default_peak, 0.1, key="med_peak")
+                    duration = st.slider("Duration (hours)", 4.0, 16.0, default_duration, 0.5, key="med_duration")
+                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, default_effect, 0.1, key="med_effect")
+                    
+                    # Show what values are being overridden
+                    st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
+                    st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
             
-            if st.button("➕ Add Medication", type="primary", key="add_med"):
+            if medication_name and st.button("➕ Add Medication", type="primary", key="add_med"):
                 time_str = dose_time.strftime("%H:%M")
                 
                 # Use prescription medication with custom parameters as override
@@ -271,32 +268,31 @@ def adhd_medications_app():
             st.subheader("Add New Stimulant")
             
             # Load available stimulants from unified database
-            try:
-                if st.session_state.medications_loaded:
-                    available_stimulants = list(medications_data['stimulants']['common_stimulants'].keys())
-                else:
-                    available_stimulants = ['coffee', 'redbull', 'monster']
-            except:
-                available_stimulants = ['coffee', 'redbull', 'monster']
+            available_stimulants = []
+            if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('common_stimulants'):
+                available_stimulants = list(medications_data['stimulants']['common_stimulants'].keys())
             
-            col1, col2 = st.columns(2)
-            with col1:
-                stim_time = st.time_input("Consumption Time", value=time(9, 0), key="stim_time")
-                stimulant_name = st.selectbox("Stimulant", available_stimulants, key="stim_name")
-            with col2:
-                quantity = st.number_input("Quantity", min_value=0.5, max_value=5.0, value=1.0, step=0.5, key="stim_quantity")
+            if not available_stimulants:
+                st.error("No stimulants available. Please check that medications.json is properly loaded.")
+            else:
+                col1, col2 = st.columns(2)
+                with col1:
+                    stim_time = st.time_input("Consumption Time", value=time(9, 0), key="stim_time")
+                    stimulant_name = st.selectbox("Stimulant", available_stimulants, key="stim_name")
+                with col2:
+                    quantity = st.number_input("Quantity", min_value=0.5, max_value=5.0, value=1.0, step=0.5, key="stim_quantity")
             
             # Show component selection for complex stimulants
-            if stimulant_name in ['redbull', 'monster']:
+            component_name = None
+            if stimulant_name and stimulant_name in ['redbull', 'monster']:
                 component_name = st.selectbox("Component", ['caffeine', 'taurine'], key="stim_component")
-            else:
-                component_name = None
             
             # Advanced parameters for stimulants (override defaults)
-            with st.expander("Advanced Parameters (Override Defaults)"):
-                # Get current values from JSON
-                try:
-                    if st.session_state.medications_loaded:
+            if stimulant_name:
+                with st.expander("Advanced Parameters (Override Defaults)"):
+                    # Get current values from JSON
+                    default_onset, default_peak, default_duration, default_effect = 0.17, 1.0, 6.0, 0.75
+                    if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('common_stimulants', {}).get(stimulant_name):
                         stim_data = medications_data['stimulants']['common_stimulants'][stimulant_name]
                         
                         if component_name and component_name in stim_data:
@@ -308,24 +304,20 @@ def adhd_medications_app():
                         
                         # Convert minutes to hours for default values
                         default_onset = stim_info.get('onset_min', 10) / 60.0
-                        default_peak = stim_info.get('peak_time_min', 60) / 60.0
+                        default_peak = stim_info.get('t_peak_min', 60) / 60.0
                         default_duration = stim_info.get('duration_min', 360) / 60.0
                         default_effect = stim_info.get('peak_duration_min', 45) / 60.0
-                    else:
-                        default_onset, default_peak, default_duration, default_effect = 0.17, 1.0, 6.0, 0.75
-                except:
-                    default_onset, default_peak, default_duration, default_effect = 0.17, 1.0, 6.0, 0.75
-                
-                onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, default_onset, 0.1, key="stim_onset")
-                peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, default_peak, 0.1, key="stim_peak")
-                duration = st.slider("Duration (hours)", 2.0, 12.0, default_duration, 0.5, key="stim_duration")
-                peak_effect = st.slider("Peak Effect", 0.1, 2.0, default_effect, 0.1, key="stim_effect")
-                
-                # Show what values are being overridden
-                st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
-                st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
+                    
+                    onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, default_onset, 0.1, key="stim_onset")
+                    peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, default_peak, 0.1, key="stim_peak")
+                    duration = st.slider("Duration (hours)", 2.0, 12.0, default_duration, 0.5, key="stim_duration")
+                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, default_effect, 0.1, key="stim_effect")
+                    
+                    # Show what values are being overridden
+                    st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
+                    st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
             
-            if st.button("➕ Add Stimulant", type="primary", key="add_stim"):
+            if stimulant_name and st.button("➕ Add Stimulant", type="primary", key="add_stim"):
                 time_str = stim_time.strftime("%H:%M")
                 
                 # Use stimulant with custom parameters as override
@@ -420,6 +412,17 @@ def adhd_medications_app():
         time_points, combined_effect = generate_timeline()
         
         if len(time_points) > 0 and len(combined_effect) > 0:
+            # Check for failed doses and show warnings
+            failed_doses = st.session_state.simulator.get_failed_doses()
+            if failed_doses:
+                st.warning(f"⚠️ **Warning**: {len(failed_doses)} dose(s) failed to generate curves:")
+                for dose in failed_doses:
+                    if dose['type'] == 'medication':
+                        st.write(f"  • {dose['dosage']}mg {dose.get('medication_name', 'medication')} at {st.session_state.simulator._minutes_to_time(dose['time'])}")
+                    else:
+                        st.write(f"  • {dose['quantity']}x {dose['stimulant_name']} at {st.session_state.simulator._minutes_to_time(dose['time'])}")
+                st.write("Check the console for detailed error information.")
+            
             # Create enhanced plot with individual curves toggle
             st.subheader("📊 Daily Effect Timeline")
             
@@ -535,7 +538,16 @@ def adhd_medications_app():
                 st.info("No suitable sleep windows found with current threshold.")
         
         else:
-            st.info("Add some medications or stimulants to see the timeline!")
+            # Check if there are doses but they all failed
+            all_doses = st.session_state.simulator.get_all_doses()
+            if all_doses:
+                failed_doses = st.session_state.simulator.get_failed_doses()
+                if len(failed_doses) == len(all_doses):
+                    st.error("❌ **Error**: All doses failed to generate curves. Check the console for error details.")
+                else:
+                    st.info("Add some medications or stimulants to see the timeline!")
+            else:
+                st.info("Add some medications or stimulants to see the timeline!")
     
     with col2:
         # Summary information
@@ -595,37 +607,30 @@ def painkillers_app():
         st.header("📋 Painkiller Management")
         
         # Load available painkillers from unified database
-        try:
-            if st.session_state.medications_loaded:
-                available_painkillers = list(medications_data['painkillers'].keys())
-            else:
-                available_painkillers = ['paracetamol_500mg', 'ibuprofen_400mg', 'panodil_665mg_mr']
-        except:
-            available_painkillers = ['paracetamol_500mg', 'ibuprofen_400mg', 'panodil_665mg_mr']
+        available_painkillers = []
+        if st.session_state.medications_loaded and medications_data.get('painkillers'):
+            available_painkillers = list(medications_data['painkillers'].keys())
         
         st.subheader("Add New Painkiller")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            dose_time = st.time_input("Dose Time", value=time(8, 0), key="pk_time")
-            painkiller_name = st.selectbox("Painkiller Type", available_painkillers, key="pk_name")
-        with col2:
-            pill_count = st.number_input("Pills", min_value=1, max_value=4, value=1, step=1, key="pk_pills")
+        if not available_painkillers:
+            st.error("No painkillers available. Please check that medications.json is properly loaded.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                dose_time = st.time_input("Dose Time", value=time(8, 0), key="pk_time")
+                painkiller_name = st.selectbox("Painkiller Type", available_painkillers, key="pk_name")
+            with col2:
+                pill_count = st.number_input("Pills", min_value=1, max_value=4, value=1, step=1, key="pk_pills")
         
         # Auto-calculate and display dosage based on product and pill count
-        if painkiller_name in available_painkillers:
+        if painkiller_name and painkiller_name in available_painkillers:
             try:
-                if st.session_state.medications_loaded:
+                if st.session_state.medications_loaded and medications_data.get('painkillers', {}).get(painkiller_name):
                     pk_info = medications_data['painkillers'][painkiller_name]
                     
-                    # Calculate base dosage from product name
-                    base_dosage = 0
-                    if painkiller_name == "paracetamol_500mg":
-                        base_dosage = 500
-                    elif painkiller_name == "ibuprofen_400mg":
-                        base_dosage = 400
-                    elif painkiller_name == "panodil_665mg_mr":
-                        base_dosage = 665
+                    # Get base dosage from data
+                    base_dosage = pk_info.get('standard_dose_mg', 0)
                     
                     if base_dosage > 0:
                         total_dosage = base_dosage * pill_count
@@ -635,42 +640,38 @@ def painkillers_app():
                         if pill_count > 1:
                             st.caption(f"({base_dosage}mg per pill)")
                         
-                        # Show typical dosing information
-                        if painkiller_name == "panodil_665mg_mr":
-                            st.info("💡 **Typical dose**: 2 pills (1330mg) every 6-8 hours")
-                        elif painkiller_name == "paracetamol_500mg":
-                            st.info("💡 **Typical dose**: 1-2 pills (500-1000mg) every 4-6 hours")
-                        elif painkiller_name == "ibuprofen_400mg":
-                            st.info("💡 **Typical dose**: 1-2 pills (400-800mg) every 6-8 hours")
-            except:
+                        # Show typical dosing information from data
+                        typical_pills = 1 if base_dosage >= 500 else 2
+                        typical_dose = base_dosage * typical_pills
+                        st.info(f"💡 **Typical dose**: {typical_pills} pill{'s' if typical_pills > 1 else ''} ({typical_dose}mg)")
+            except Exception as e:
+                print(f"Warning: Could not calculate dosage for {painkiller_name}: {e}")
                 pass
         
         # Show painkiller info
-        try:
-            if st.session_state.medications_loaded:
-                pk_info = medications_data['painkillers'][painkiller_name]
-                
-                onset_hours = pk_info['onset_min'] / 60.0
-                peak_time_hours = pk_info['time_until_peak_min'] / 60.0
-                peak_duration_hours = pk_info['peak_duration_min'] / 60.0
-                duration_hours = pk_info['duration_min'] / 60.0
-                wear_off_hours = pk_info['wear_off_duration_min'] / 60.0
-                
-                st.info(f"**{painkiller_name}**: Onset {format_time_hours_minutes(onset_hours)}, Peak at {format_time_hours_minutes(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
-        except:
-            st.warning("Could not load painkiller information")
+        if painkiller_name:
+            try:
+                if st.session_state.medications_loaded and medications_data.get('painkillers', {}).get(painkiller_name):
+                    pk_info = medications_data['painkillers'][painkiller_name]
+                    
+                    onset_hours = pk_info['onset_min'] / 60.0
+                    peak_time_hours = pk_info['t_peak_min'] / 60.0
+                    peak_duration_hours = pk_info['peak_duration_min'] / 60.0
+                    duration_hours = pk_info['duration_min'] / 60.0
+                    wear_off_hours = pk_info['wear_off_min'] / 60.0
+                    
+                    st.info(f"**{painkiller_name}**: Onset {format_time_hours_minutes(onset_hours)}, Peak at {format_time_hours_minutes(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
+            except Exception as e:
+                st.warning(f"Could not load painkiller information: {str(e)}")
         
-        if st.button("➕ Add Painkiller", type="primary", key="add_pk"):
+        if painkiller_name and st.button("➕ Add Painkiller", type="primary", key="add_pk"):
             time_str = dose_time.strftime("%H:%M")
             
             # Calculate actual dosage based on pill count
             base_dosage = 0
-            if painkiller_name == "paracetamol_500mg":
-                base_dosage = 500
-            elif painkiller_name == "ibuprofen_400mg":
-                base_dosage = 400
-            elif painkiller_name == "panodil_665mg_mr":
-                base_dosage = 665
+            if st.session_state.medications_loaded and medications_data.get('painkillers', {}).get(painkiller_name):
+                pk_info = medications_data['painkillers'][painkiller_name]
+                base_dosage = pk_info.get('standard_dose_mg', 0)
             
             actual_dosage = base_dosage * pill_count
             
@@ -687,18 +688,17 @@ def painkillers_app():
             
             # Add PK parameters if available
             try:
-                if st.session_state.medications_loaded:
+                if st.session_state.medications_loaded and medications_data.get('painkillers', {}).get(painkiller_name):
                     pk_info = medications_data['painkillers'][painkiller_name]
                     dose_entry.update({
                         'onset_min': pk_info['onset_min'],
-                        'peak_time_min': pk_info['time_until_peak_min'],
+                        'peak_time_min': pk_info['t_peak_min'],
                         'peak_duration_min': pk_info['peak_duration_min'],
                         'duration_min': pk_info['duration_min'],
-                        'wear_off_duration_min': pk_info['wear_off_duration_min'],
-                        'intensity_peak': pk_info['intensity_peak'],
-                        'intensity_avg': pk_info['intensity_avg']
+                        'wear_off_duration_min': pk_info['wear_off_min']
                     })
-            except:
+            except Exception as e:
+                print(f"Warning: Could not add PK parameters for {painkiller_name}: {e}")
                 pass
             
             st.session_state.painkiller_doses.append(dose_entry)
