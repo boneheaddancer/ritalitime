@@ -7,6 +7,9 @@ from pk_models import concentration_curve
 from saturation import combine_and_cap
 import streamlit as st
 
+# Test if concentration_curve is available
+print(f"DEBUG: concentration_curve imported successfully: {concentration_curve}")
+
 class MedicationSimulator:
     """ADHD Medication Timeline Simulator with PK-based curves and saturation"""
     
@@ -64,6 +67,7 @@ class MedicationSimulator:
     def generate_pk_curve(self, dose: Dict) -> np.ndarray:
         """Generate PK-based concentration curve for a single dose using pk_models.py"""
         print(f"=== generate_pk_curve CALLED ===")
+        print(f"DEBUG: Method entered successfully")
         effect = np.zeros_like(self.time_points)
         
         # Debug: print dose structure

@@ -135,14 +135,35 @@ def format_time_hours_minutes(decimal_hours):
 
 def format_duration_hours_minutes(decimal_hours):
     """Convert decimal hours to duration format (e.g., 2h 30m)"""
-    hours = int(decimal_hours)
-    minutes = int((decimal_hours % 1) * 60)
-    if hours > 0 and minutes > 0:
-        return f"{hours}h {minutes}m"
-    elif hours > 0:
-        return f"{hours}h"
-    else:
-        return f"{minutes}m"
+    try:
+        # Ensure input is a valid number
+        decimal_hours = float(decimal_hours)
+        
+        # Handle negative values
+        if decimal_hours < 0:
+            return f"{decimal_hours:.2f}h"
+        
+        hours = int(decimal_hours)
+        minutes = round((decimal_hours % 1) * 60)  # Round instead of truncate
+        
+        # Handle edge case where rounding gives 60 minutes
+        if minutes == 60:
+            hours += 1
+            minutes = 0
+        
+        # Format output
+        if hours > 0 and minutes > 0:
+            return f"{hours}h {minutes}m"
+        elif hours > 0:
+            return f"{hours}h"
+        elif minutes > 0:
+            return f"{minutes}m"
+        else:
+            return "0m"  # Handle exactly 0 hours
+            
+    except (TypeError, ValueError, AttributeError):
+        # Fallback for invalid input
+        return f"{decimal_hours:.2f}h"
 
 # Page configuration
 st.set_page_config(
@@ -233,15 +254,16 @@ def adhd_medications_app():
                         med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
                         
                         # Convert minutes to hours for default values
-                        default_onset = med_info['onset_min'] / 60.0
-                        default_peak = med_info['t_peak_min'] / 60.0
-                        default_duration = med_info['duration_min'] / 60.0
-                        default_effect = med_info['peak_duration_min'] / 60.0
+                        default_onset = float(med_info['onset_min']) / 60.0
+                        default_peak = float(med_info['t_peak_min']) / 60.0
+                        default_duration = float(med_info['duration_min']) / 60.0
+                        # Use peak_effect from medication data instead of peak_duration
+                        default_effect = float(med_info.get('peak_effect', 1.0))
                     
-                    onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, default_onset, 0.1, key="med_onset")
-                    peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, default_peak, 0.1, key="med_peak")
-                    duration = st.slider("Duration (hours)", 4.0, 16.0, default_duration, 0.5, key="med_duration")
-                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, default_effect, 0.1, key="med_effect")
+                    onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, value=round(default_onset, 1), step=0.1, key="med_onset")
+                    peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, value=round(default_peak, 1), step=0.1, key="med_peak")
+                    duration = st.slider("Duration (hours)", 4.0, 16.0, value=round(default_duration, 1), step=0.5, key="med_duration")
+                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="med_effect")
                     
                     # Show what values are being overridden
                     st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
@@ -303,15 +325,15 @@ def adhd_medications_app():
                             stim_info = list(stim_data.values())[0] if stim_data else {}
                         
                         # Convert minutes to hours for default values
-                        default_onset = stim_info.get('onset_min', 10) / 60.0
-                        default_peak = stim_info.get('t_peak_min', 60) / 60.0
-                        default_duration = stim_info.get('duration_min', 360) / 60.0
-                        default_effect = stim_info.get('peak_duration_min', 45) / 60.0
+                        default_onset = float(stim_info.get('onset_min', 10)) / 60.0
+                        default_peak = float(stim_info.get('t_peak_min', 60)) / 60.0
+                        default_duration = float(stim_info.get('duration_min', 360)) / 60.0
+                        default_effect = float(stim_info.get('peak_duration_min', 45)) / 60.0
                     
-                    onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, default_onset, 0.1, key="stim_onset")
-                    peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, default_peak, 0.1, key="stim_peak")
-                    duration = st.slider("Duration (hours)", 2.0, 12.0, default_duration, 0.5, key="stim_duration")
-                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, default_effect, 0.1, key="stim_effect")
+                    onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, value=round(default_onset, 1), step=0.1, key="stim_onset")
+                    peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, value=round(default_peak, 1), step=0.1, key="stim_peak")
+                    duration = st.slider("Duration (hours)", 2.0, 12.0, value=round(default_duration, 1), step=0.5, key="stim_duration")
+                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="stim_effect")
                     
                     # Show what values are being overridden
                     st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
@@ -404,12 +426,8 @@ def adhd_medications_app():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        # Generate timeline with caching
-        @st.cache_data(show_spinner=False)
-        def generate_timeline():
-            return st.session_state.simulator.generate_daily_timeline()
-        
-        time_points, combined_effect = generate_timeline()
+        # Generate timeline (no caching to ensure real-time updates)
+        time_points, combined_effect = st.session_state.simulator.generate_daily_timeline()
         
         if len(time_points) > 0 and len(combined_effect) > 0:
             # Check for failed doses and show warnings
