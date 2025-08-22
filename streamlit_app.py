@@ -12,41 +12,88 @@ import io
 print("Imports completed successfully")
 
 
-# Load unified medications file with error handling
-print("Attempting to load medications.json...")
-medications_data = {}  # Initialize as empty dict
-try:
-    # Load the raw JSON data directly since it has a nested structure
-    with open('medications.json', 'r') as f:
-        medications_data = json.load(f)
-    st.session_state.medications_loaded = True
-    print(f"Medications loaded successfully: {len(medications_data)} categories")
-except ValueError as e:
-    st.warning(f"⚠️ Warning: Could not load medications.json - {e}")
-    st.session_state.medications_loaded = False
-    print(f"ValueError loading medications: {e}")
-except FileNotFoundError:
-    st.warning("⚠️ Warning: medications.json file not found")
-    st.session_state.medications_loaded = False
-    print("medications.json file not found")
-except Exception as e:
-    st.warning(f"⚠️ Warning: Unexpected error loading medications.json - {e}")
-    st.session_state.medications_loaded = False
-    print(f"Unexpected error loading medications: {e}")
+# Load unified medications file with comprehensive error handling
+def load_medications_data():
+    """Load medications data with proper error handling and validation"""
+    print("Attempting to load medications.json...")
+    
+    try:
+        with open('medications.json', 'r') as f:
+            data = json.load(f)
+        
+        # Validate data structure
+        if not isinstance(data, dict):
+            raise ValueError("medications.json must contain a JSON object")
+        
+        # Check for required top-level keys
+        required_keys = ['stimulants', 'painkillers']
+        missing_keys = [key for key in required_keys if key not in data]
+        if missing_keys:
+            raise ValueError(f"Missing required keys: {missing_keys}")
+        
+        # Validate stimulants structure
+        if 'stimulants' in data:
+            stimulants = data['stimulants']
+            if not isinstance(stimulants, dict):
+                raise ValueError("stimulants must be an object")
+            
+            required_stim_keys = ['prescription_stimulants', 'common_stimulants']
+            missing_stim_keys = [key for key in required_stim_keys if key not in stimulants]
+            if missing_stim_keys:
+                raise ValueError(f"Missing stimulant keys: {missing_stim_keys}")
+        
+        print(f"Medications loaded successfully: {len(data)} categories")
+        return data, True, None
+        
+    except FileNotFoundError:
+        error_msg = "medications.json file not found"
+        print(error_msg)
+        return {}, False, error_msg
+    except json.JSONDecodeError as e:
+        error_msg = f"Invalid JSON format in medications.json: {e}"
+        print(error_msg)
+        return {}, False, error_msg
+    except ValueError as e:
+        error_msg = f"Data validation error: {e}"
+        print(error_msg)
+        return {}, False, error_msg
+    except Exception as e:
+        error_msg = f"Unexpected error loading medications.json: {e}"
+        print(error_msg)
+        return {}, False, error_msg
+
+# Load medications data
+medications_data, medications_loaded, medications_error = load_medications_data()
+st.session_state.medications_loaded = medications_loaded
+
+# Show error if loading failed
+if not medications_loaded:
+    st.error(f"❌ **Critical Error**: Failed to load medications.json - {medications_error}")
+    st.error("The application cannot function without medication data. Please check the file and restart.")
 
 # Load profiles with validation
 def load_profiles_with_validation():
-    """Load profiles and validate medication references"""
+    """Load profiles and validate medication references with comprehensive error handling"""
     try:
         with open('profiles.json', 'r') as f:
             data = json.load(f)
         
+        # Validate data structure
+        if not isinstance(data, dict):
+            raise ValueError("profiles.json must contain a JSON object")
+        
         # Extract preset_profiles from the data structure
         profiles = data.get('preset_profiles', {})
+        if not isinstance(profiles, dict):
+            raise ValueError("preset_profiles must be an object")
         
         # Convert to list format for easier handling
         profile_list = []
         for profile_key, profile_data in profiles.items():
+            if not isinstance(profile_data, dict):
+                print(f"Warning: Skipping invalid profile {profile_key} - not an object")
+                continue
+                
             profile_data['key'] = profile_key  # Add the key for reference
             profile_list.append(profile_data)
         
@@ -55,65 +102,99 @@ def load_profiles_with_validation():
         warnings = []
         
         for profile in profile_list:
-            profile_warnings = []
-            valid_entries = []
-            
-            # Check each medication entry
-            for entry in profile.get('medications', []):
-                med_name = entry.get('medication_name')
-                if med_name:
-                    # Check if medication exists in unified database
-                    if not is_medication_known(med_name):
-                        profile_warnings.append(f"Unknown medication: {med_name}")
+            try:
+                profile_warnings = []
+                valid_entries = []
+                
+                # Check each medication entry
+                for entry in profile.get('medications', []):
+                    if not isinstance(entry, dict):
+                        profile_warnings.append(f"Invalid medication entry format")
                         continue
-                valid_entries.append(entry)
-            
-            # Check each stimulant entry
-            for entry in profile.get('stimulants', []):
-                stim_name = entry.get('stimulant_name')
-                if stim_name:
-                    # Check if stimulant exists in unified database
-                    if not is_stimulant_known(stim_name):
-                        profile_warnings.append(f"Unknown stimulant: {stim_name}")
+                        
+                    med_name = entry.get('medication_name')
+                    if med_name:
+                        # Check if medication exists in unified database
+                        if not is_medication_known(med_name):
+                            profile_warnings.append(f"Unknown medication: {med_name}")
+                            continue
+                    valid_entries.append(entry)
+                
+                # Check each stimulant entry
+                for entry in profile.get('stimulants', []):
+                    if not isinstance(entry, dict):
+                        profile_warnings.append(f"Invalid stimulant entry format")
                         continue
-                valid_entries.append(entry)
-            
-            # Create validated profile
-            validated_profile = profile.copy()
-            # Filter entries based on their content, not type field
-            validated_profile['medications'] = [e for e in valid_entries if 'medication_name' in e]
-            validated_profile['stimulants'] = [e for e in valid_entries if 'stimulant_name' in e]
-            
-            validated_profiles.append(validated_profile)
-            
-            if profile_warnings:
-                warnings.append(f"Profile '{profile.get('name', 'Unknown')}': {', '.join(profile_warnings)}")
+                        
+                    stim_name = entry.get('stimulant_name')
+                    if stim_name:
+                        # Check if stimulant exists in unified database
+                        if not is_stimulant_known(stim_name):
+                            profile_warnings.append(f"Unknown stimulant: {stim_name}")
+                            continue
+                    valid_entries.append(entry)
+                
+                # Create validated profile
+                validated_profile = profile.copy()
+                # Filter entries based on their content, not type field
+                validated_profile['medications'] = [e for e in valid_entries if 'medication_name' in e]
+                validated_profile['stimulants'] = [e for e in valid_entries if 'stimulant_name' in e]
+                
+                validated_profiles.append(validated_profile)
+                
+                if profile_warnings:
+                    warnings.append(f"Profile '{profile.get('name', 'Unknown')}': {', '.join(profile_warnings)}")
+                    
+            except Exception as e:
+                profile_name = profile.get('name', 'Unknown')
+                warnings.append(f"Profile '{profile_name}': Error during validation - {e}")
+                continue
         
         return validated_profiles, warnings
         
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        st.warning(f"⚠️ Warning: Could not load profiles.json - {e}")
-        return [], []
+    except FileNotFoundError:
+        error_msg = "profiles.json file not found"
+        print(error_msg)
+        return [], [error_msg]
+    except json.JSONDecodeError as e:
+        error_msg = f"Invalid JSON format in profiles.json: {e}"
+        print(error_msg)
+        return [], [error_msg]
+    except ValueError as e:
+        error_msg = f"Data validation error in profiles.json: {e}"
+        print(error_msg)
+        return [], [error_msg]
     except Exception as e:
-        st.warning(f"⚠️ Warning: Unexpected error loading profiles.json - {e}")
-        return [], []
+        error_msg = f"Unexpected error loading profiles.json: {e}"
+        print(error_msg)
+        return [], [error_msg]
 
 def is_medication_known(med_name):
     """Check if medication exists in unified database"""
     try:
-        if st.session_state.medications_loaded:
-            return med_name in medications_data.get('stimulants', {}).get('prescription_stimulants', {})
-        return False
-    except:
+        if not med_name:
+            return False
+        if not st.session_state.medications_loaded:
+            return False
+        if not medications_data:
+            return False
+        return med_name in medications_data.get('stimulants', {}).get('prescription_stimulants', {})
+    except Exception as e:
+        print(f"Error checking medication '{med_name}': {e}")
         return False
 
 def is_stimulant_known(stim_name):
     """Check if stimulant exists in unified database"""
     try:
-        if st.session_state.medications_loaded:
-            return stim_name in medications_data.get('stimulants', {}).get('common_stimulants', {})
-        return False
-    except:
+        if not stim_name:
+            return False
+        if not st.session_state.medications_loaded:
+            return False
+        if not medications_data:
+            return False
+        return stim_name in medications_data.get('stimulants', {}).get('common_stimulants', {})
+    except Exception as e:
+        print(f"Error checking stimulant '{stim_name}': {e}")
         return False
 
 # Load profiles
@@ -126,16 +207,26 @@ if profile_warnings:
     for warning in profile_warnings:
         st.warning(f"⚠️ {warning}")
 
-# Helper function to convert decimal hours to HH:MM format
+# Helper functions for time formatting (DRY principle)
 def format_time_hours_minutes(decimal_hours):
     """Convert decimal hours to HH:MM format"""
-    hours = int(decimal_hours)
-    minutes = int((decimal_hours % 1) * 60)
-    return f"{hours:02d}:{minutes:02d}"
+    try:
+        if not isinstance(decimal_hours, (int, float)):
+            raise ValueError(f"Invalid input type: {type(decimal_hours)}")
+        
+        decimal_hours = float(decimal_hours)
+        hours = int(decimal_hours)
+        minutes = int((decimal_hours % 1) * 60)
+        return f"{hours:02d}:{minutes:02d}"
+    except Exception as e:
+        raise ValueError(f"Invalid input for time formatting: {decimal_hours}. Error: {e}")
 
 def format_duration_hours_minutes(decimal_hours):
     """Convert decimal hours to duration format (e.g., 2h 30m)"""
     try:
+        if not isinstance(decimal_hours, (int, float)):
+            raise ValueError(f"Invalid input type: {type(decimal_hours)}")
+        
         # Ensure input is a valid number
         decimal_hours = float(decimal_hours)
         
@@ -161,9 +252,9 @@ def format_duration_hours_minutes(decimal_hours):
         else:
             return "0m"  # Handle exactly 0 hours
             
-    except (TypeError, ValueError, AttributeError):
-        # Fallback for invalid input
-        return f"{decimal_hours:.2f}h"
+    except Exception as e:
+        # Proper error handling instead of fallback
+        raise ValueError(f"Invalid input for duration formatting: {decimal_hours}. Error: {e}")
 
 # Page configuration
 st.set_page_config(
@@ -217,7 +308,11 @@ def adhd_medications_app():
                 available_medications = list(medications_data['stimulants']['prescription_stimulants'].keys())
             
             if not available_medications:
-                st.error("No medications available. Please check that medications.json is properly loaded.")
+                if not st.session_state.medications_loaded:
+                    st.error("❌ **Critical Error**: Medications data not loaded. Please check the error above and restart the application.")
+                else:
+                    st.warning("⚠️ **Warning**: No prescription medications found in medications.json")
+                return
             else:
                 col1, col2 = st.columns(2)
                 with col1:
@@ -225,66 +320,102 @@ def adhd_medications_app():
                     medication_name = st.selectbox("Medication Type", available_medications, key="med_name")
                 with col2:
                     dosage = st.number_input("Dosage (mg)", min_value=1.0, max_value=100.0, value=20.0, step=1.0, key="med_dosage")
-            
-            # Show medication info if prescription medication is selected
-            if medication_name and medication_name != 'Custom':
-                try:
-                    if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(medication_name):
-                        med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
+                
+                # Show medication info if prescription medication is selected
+                if medication_name and medication_name != 'Custom':
+                    try:
+                        if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(medication_name):
+                            med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
+                            
+                            # Convert minutes to hours for display
+                            onset_hours = med_info['onset_min'] / 60.0
+                            peak_time_hours = med_info['t_peak_min'] / 60.0
+                            peak_duration_hours = med_info['peak_duration_min'] / 60.0
+                            duration_hours = med_info['duration_min'] / 60.0
+                            wear_off_hours = med_info['wear_off_min'] / 60.0
+                            
+                            st.info(f"**{medication_name}**: Onset {format_time_hours_minutes(onset_hours)}, Peak at {format_time_hours_minutes(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
+                        else:
+                            st.warning("Medications data not loaded")
+                    except Exception as e:
+                        st.warning(f"Could not load medication information: {str(e)}")
+                
+                # Advanced parameters (to override prescription defaults)
+                if medication_name:
+                    with st.expander("Advanced Parameters (Override Defaults)"):
+                        # Get current values from JSON for prescription medication
+                        default_onset, default_peak, default_duration, default_effect = None, None, None, None
                         
-                        # Convert minutes to hours for display
-                        onset_hours = med_info['onset_min'] / 60.0
-                        peak_time_hours = med_info['t_peak_min'] / 60.0
-                        peak_duration_hours = med_info['peak_duration_min'] / 60.0
-                        duration_hours = med_info['duration_min'] / 60.0
-                        wear_off_hours = med_info['wear_off_min'] / 60.0
-                        
-                        st.info(f"**{medication_name}**: Onset {format_time_hours_minutes(onset_hours)}, Peak at {format_time_hours_minutes(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
-                    else:
-                        st.warning("Medications data not loaded")
-                except Exception as e:
-                    st.warning(f"Could not load medication information: {str(e)}")
-            
-            # Advanced parameters (to override prescription defaults)
-            if medication_name:
-                with st.expander("Advanced Parameters (Override Defaults)"):
-                    # Get current values from JSON for prescription medication
-                    default_onset, default_peak, default_duration, default_effect = 1.0, 2.0, 8.0, 1.0
-                    if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(medication_name):
-                        med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
-                        
-                        # Convert minutes to hours for default values
-                        default_onset = float(med_info['onset_min']) / 60.0
-                        default_peak = float(med_info['t_peak_min']) / 60.0
-                        default_duration = float(med_info['duration_min']) / 60.0
-                        # Use peak_effect from medication data instead of peak_duration
-                        default_effect = float(med_info.get('peak_effect', 1.0))
-                    
-                    onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, value=round(default_onset, 1), step=0.1, key="med_onset")
-                    peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, value=round(default_peak, 1), step=0.1, key="med_peak")
-                    duration = st.slider("Duration (hours)", 4.0, 16.0, value=round(default_duration, 1), step=0.5, key="med_duration")
-                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="med_effect")
-                    
-                    # Show what values are being overridden
-                    st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
-                    st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
+                        if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(medication_name):
+                            med_info = medications_data['stimulants']['prescription_stimulants'][medication_name]
+                            
+                            # Convert minutes to hours for default values
+                            default_onset = float(med_info['onset_min']) / 60.0
+                            default_peak = float(med_info['t_peak_min']) / 60.0
+                            default_duration = float(med_info['duration_min']) / 60.0
+                            # Use peak_effect from medication data instead of peak_duration
+                            default_effect = float(med_info.get('peak_effect', 1.0))
+                            
+                            # Validate that we have meaningful values
+                            if default_onset <= 0 or default_peak <= 0 or default_duration <= 0:
+                                st.error(f"Invalid PK parameters for {medication_name}. Please check medications.json data.")
+                                return
+                            
+                            onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, value=round(default_onset, 1), step=0.1, key="med_onset")
+                            peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, value=round(default_peak, 1), step=0.1, key="med_peak")
+                            duration = st.slider("Duration (hours)", 4.0, 16.0, value=round(default_duration, 1), step=0.5, key="med_duration")
+                            peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="med_effect")
+                            
+                            # Show what values are being overridden
+                            st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
+                            st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
             
             if medication_name and st.button("➕ Add Medication", type="primary", key="add_med"):
-                time_str = dose_time.strftime("%H:%M")
-                
-                # Use prescription medication with custom parameters as override
-                custom_params = {
-                    'onset_time': onset_time,
-                    'peak_time': peak_time,
-                    'duration': duration,
-                    'peak_effect': peak_effect
-                }
-                st.session_state.simulator.add_medication(
-                    time_str, dosage, medication_name=medication_name, custom_params=custom_params
-                )
-                st.success(f"Added {dosage}mg {medication_name} at {time_str}")
-                
-                st.rerun()
+                try:
+                    # Validate inputs before adding
+                    if not medication_name or medication_name.strip() == "":
+                        st.error("Please select a valid medication")
+                        return
+                    
+                    if dosage <= 0:
+                        st.error("Dosage must be greater than 0")
+                        return
+                    
+                    if not all(isinstance(param, (int, float)) for param in [onset_time, peak_time, duration, peak_effect]):
+                        st.error("All parameters must be valid numbers")
+                        return
+                    
+                    if onset_time <= 0 or peak_time <= 0 or duration <= 0 or peak_effect <= 0:
+                        st.error("All parameters must be greater than 0")
+                        return
+                    
+                    if peak_time <= onset_time:
+                        st.error("Peak time must be after onset time")
+                        return
+                    
+                    if duration <= peak_time:
+                        st.error("Duration must be longer than peak time")
+                        return
+                    
+                    time_str = dose_time.strftime("%H:%M")
+                    
+                    # Use prescription medication with custom parameters as override
+                    custom_params = {
+                        'onset_time': onset_time,
+                        'peak_time': peak_time,
+                        'duration': duration,
+                        'peak_effect': peak_effect
+                    }
+                    st.session_state.simulator.add_medication(
+                        time_str, dosage, medication_name=medication_name, custom_params=custom_params
+                    )
+                    st.success(f"Added {dosage}mg {medication_name} at {time_str}")
+                    
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error adding medication: {e}")
+                    print(f"Error adding medication: {e}")
         
         with tab2:
             st.subheader("Add New Stimulant")
@@ -313,7 +444,8 @@ def adhd_medications_app():
             if stimulant_name:
                 with st.expander("Advanced Parameters (Override Defaults)"):
                     # Get current values from JSON
-                    default_onset, default_peak, default_duration, default_effect = 0.17, 1.0, 6.0, 0.75
+                    default_onset, default_peak, default_duration, default_effect = None, None, None, None
+                    
                     if st.session_state.medications_loaded and medications_data.get('stimulants', {}).get('common_stimulants', {}).get(stimulant_name):
                         stim_data = medications_data['stimulants']['common_stimulants'][stimulant_name]
                         
@@ -325,36 +457,73 @@ def adhd_medications_app():
                             stim_info = list(stim_data.values())[0] if stim_data else {}
                         
                         # Convert minutes to hours for default values
-                        default_onset = float(stim_info.get('onset_min', 10)) / 60.0
-                        default_peak = float(stim_info.get('t_peak_min', 60)) / 60.0
-                        default_duration = float(stim_info.get('duration_min', 360)) / 60.0
-                        default_effect = float(stim_info.get('peak_duration_min', 45)) / 60.0
-                    
-                    onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, value=round(default_onset, 1), step=0.1, key="stim_onset")
-                    peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, value=round(default_peak, 1), step=0.1, key="stim_peak")
-                    duration = st.slider("Duration (hours)", 2.0, 12.0, value=round(default_duration, 1), step=0.5, key="stim_duration")
-                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="stim_effect")
-                    
-                    # Show what values are being overridden
-                    st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
-                    st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
+                        default_onset = float(stim_info.get('onset_min', 0)) / 60.0
+                        default_peak = float(stim_info.get('t_peak_min', 0)) / 60.0
+                        default_duration = float(stim_info.get('duration_min', 0)) / 60.0
+                        default_effect = float(stim_info.get('peak_duration_min', 0)) / 60.0
+                        
+                        # Validate that we have meaningful values
+                        if default_onset <= 0 or default_peak <= 0 or default_duration <= 0:
+                            st.error(f"Invalid PK parameters for {stimulant_name}. Please check medications.json data.")
+                            return
+                        
+                        onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, value=round(default_onset, 1), step=0.1, key="stim_onset")
+                        peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, value=round(default_peak, 1), step=0.1, key="stim_peak")
+                        duration = st.slider("Duration (hours)", 2.0, 12.0, value=round(default_duration, 1), step=0.5, key="stim_duration")
+                        peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="stim_effect")
+                        
+                        # Show what values are being overridden
+                        st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
+                        st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
             
             if stimulant_name and st.button("➕ Add Stimulant", type="primary", key="add_stim"):
-                time_str = stim_time.strftime("%H:%M")
-                
-                # Use stimulant with custom parameters as override
-                custom_params = {
-                    'onset_time': onset_time,
-                    'peak_time': peak_time,
-                    'duration': duration,
-                    'peak_effect': peak_effect
-                }
-                st.session_state.simulator.add_stimulant(
-                    time_str, stimulant_name, component_name, quantity, custom_params
-                )
-                st.success(f"Added {quantity}x {stimulant_name} at {time_str}")
-                
-                st.rerun()
+                try:
+                    # Validate inputs before adding
+                    if not stimulant_name or stimulant_name.strip() == "":
+                        st.error("Please select a valid stimulant")
+                        return
+                    
+                    if quantity <= 0:
+                        st.error("Quantity must be greater than 0")
+                        return
+                    
+                    # Only validate custom parameters if they were set
+                    if 'onset_time' in locals() and 'peak_time' in locals() and 'duration' in locals() and 'peak_effect' in locals():
+                        if not all(isinstance(param, (int, float)) for param in [onset_time, peak_time, duration, peak_effect]):
+                            st.error("All parameters must be valid numbers")
+                            return
+                        
+                        if onset_time <= 0 or peak_time <= 0 or duration <= 0 or peak_effect <= 0:
+                            st.error("All parameters must be greater than 0")
+                            return
+                        
+                        if peak_time <= onset_time:
+                            st.error("Peak time must be after onset time")
+                            return
+                        
+                        if duration <= peak_time:
+                            st.error("Duration must be longer than peak time")
+                            return
+                    
+                    time_str = stim_time.strftime("%H:%M")
+                    
+                    # Use stimulant with custom parameters as override
+                    custom_params = {
+                        'onset_time': onset_time,
+                        'peak_time': peak_time,
+                        'duration': duration,
+                        'peak_effect': peak_effect
+                    }
+                    st.session_state.simulator.add_stimulant(
+                        time_str, stimulant_name, component_name, quantity, custom_params
+                    )
+                    st.success(f"Added {quantity}x {stimulant_name} at {time_str}")
+                    
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error adding stimulant: {e}")
+                    print(f"Error adding stimulant: {e}")
         
         # Profile management
         st.header("👤 Profile Management")
@@ -931,7 +1100,10 @@ def generate_painkiller_timeline():
             intensity_multiplier = min(2.0, 1.0 + (pill_count - 1) * 0.4)  # Max 100% increase
             duration_multiplier = 1.0 + (pill_count - 1) * 0.1  # 10% duration increase per pill
         
-        base_intensity = dose.get('intensity_peak', 5.0)  # Default to 5/10 if not specified
+        base_intensity = dose.get('intensity_peak')
+        if base_intensity is None:
+            print(f"Warning: No intensity_peak specified for {dose['name']}")
+            continue
         adjusted_intensity = base_intensity * intensity_multiplier
         adjusted_duration = duration_hours * duration_multiplier
         adjusted_peak_duration = peak_duration_hours * duration_multiplier
@@ -1041,15 +1213,15 @@ def create_painkiller_plot(time_points, pain_level):
             elif time_since_dose < tmax_hours:
                 # Rising phase (onset to Tmax)
                 progress = (time_since_dose - onset_hours) / (tmax_hours - onset_hours)
-                effect = dose.get('intensity_peak', 5.0) * progress
+                effect = dose.get('intensity_peak', 0) * progress
             elif time_since_dose < tmax_hours + peak_duration_hours:
                 # Peak phase (Tmax to end of peak duration)
-                effect = dose.get('intensity_peak', 5.0)
+                effect = dose.get('intensity_peak', 0)
             elif time_since_dose < duration_hours:
                 # Falling phase (end of peak to end of duration)
                 fall_duration = duration_hours - (tmax_hours + peak_duration_hours)
                 fall_progress = (time_since_dose - (tmax_hours + peak_duration_hours)) / fall_duration
-                effect = dose.get('intensity_peak', 5.0) * (1 - fall_progress)
+                effect = dose.get('intensity_peak', 0) * (1 - fall_progress)
             else:
                 effect = 0
             

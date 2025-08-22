@@ -111,7 +111,7 @@
       "vyvanse": {
         "category": "stimulant",
         "default_dose_unit": "mg",
-        "standard_dose_mg": 30,
+        "standard_dose_mg": 20,
         "onset_min": 90,
         "t_peak_min": 240,
         "peak_duration_min": 180,
@@ -122,8 +122,8 @@
       "elvanse": {
         "category": "stimulant",
         "default_dose_unit": "mg",
-        "standard_dose_mg": 30,
-        "onset_min": 90,
+        "standard_dose_mg": 20,
+        "onset_min": 30,
         "t_peak_min": 240,
         "peak_duration_min": 180,
         "duration_min": 780,
