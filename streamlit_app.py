@@ -9,22 +9,29 @@ import json
 from datetime import datetime, time, timedelta
 import io
 
+print("Imports completed successfully")
+
 
 # Load unified medications file with error handling
+print("Attempting to load medications.json...")
 try:
     # Load the raw JSON data directly since it has a nested structure
     with open('medications.json', 'r') as f:
         medications_data = json.load(f)
     st.session_state.medications_loaded = True
+    print(f"Medications loaded successfully: {len(medications_data)} categories")
 except ValueError as e:
     st.warning(f"⚠️ Warning: Could not load medications.json - {e}")
     st.session_state.medications_loaded = False
+    print(f"ValueError loading medications: {e}")
 except FileNotFoundError:
     st.warning("⚠️ Warning: medications.json file not found")
     st.session_state.medications_loaded = False
+    print("medications.json file not found")
 except Exception as e:
     st.warning(f"⚠️ Warning: Unexpected error loading medications.json - {e}")
     st.session_state.medications_loaded = False
+    print(f"Unexpected error loading medications: {e}")
 
 # Load profiles with validation
 def load_profiles_with_validation():
@@ -109,7 +116,9 @@ def is_stimulant_known(stim_name):
         return False
 
 # Load profiles
+print("Loading profiles...")
 profiles, profile_warnings = load_profiles_with_validation()
+print(f"Profiles loaded: {len(profiles)} profiles, {len(profile_warnings)} warnings")
 
 # Show profile warnings
 if profile_warnings:
@@ -145,8 +154,12 @@ st.set_page_config(
 # Initialize session state
 if 'simulator' not in st.session_state:
     st.session_state.simulator = MedicationSimulator()
+    print("MedicationSimulator initialized")
+
+print("Streamlit app loaded successfully")
 
 def main():
+    print("Main function called")
     # Navigation
     st.sidebar.title("📱 App Navigation")
     app_mode = st.sidebar.selectbox(
@@ -156,8 +169,10 @@ def main():
     )
     
     if app_mode == "ADHD Medications":
+        print("Calling ADHD medications app")
         adhd_medications_app()
     else:
+        print("Calling painkillers app")
         painkillers_app()
 
 def adhd_medications_app():

@@ -30,13 +30,22 @@ def fit_ka_ke_from_timings(onset_min: float, t_peak_min: float, duration_min: fl
 
 def concentration_curve(dose: float, onset_min: float, t_peak_min: float, duration_min: float, minutes=1440, step=5) -> Sequence[Tuple[float,float]]:
     ka, ke = fit_ka_ke_from_timings(onset_min, t_peak_min, duration_min)
+    
+    # Debug output
+    print(f"PK parameters: ka={ka:.4f}, ke={ke:.4f}, onset={onset_min:.1f}min, t_peak={t_peak_min:.1f}min, duration={duration_min:.1f}min")
+    
     xs, ys = [], []
     for m in range(0, minutes+1, step):
         c = pk_one_compartment(dose, ka, ke, m/60.0)
         # Hard onset gate so the curve doesn't pretend to act before onset:
         c = 0.0 if m < onset_min else c
         xs.append(m); ys.append(c)
+    
+    # Debug output
+    max_c = max(ys) if ys else 0
+    print(f"Generated {len(ys)} points, max concentration: {max_c:.6f}")
+    
     # Normalize so single-dose peak = 1.0 (makes visualization simple)
-    peak = max(ys) or 1.0
+    peak = max_c or 1.0
     ys = [y/peak for y in ys]
     return list(zip(xs, ys))
