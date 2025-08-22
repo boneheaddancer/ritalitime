@@ -95,8 +95,8 @@ class MedicationSimulator:
             
             # Scale by dose intensity
             if dose['type'] == 'medication':
-                # For medications, scale by dosage relative to standard dose
-                dose_intensity = dose['dosage'] / 20.0  # Assume 20mg is standard dose
+                # For medications, use the calculated peak_effect from add_medication
+                dose_intensity = dose.get('peak_effect', dose['dosage'] / 20.0)  # Fallback to standard calculation
             else:
                 # For stimulants, use the stored peak_effect
                 dose_intensity = dose.get('peak_effect', 1.0)
@@ -245,14 +245,27 @@ class MedicationSimulator:
             if medication_data:
                 # Convert minutes to hours
                 onset_time = medication_data['onset_min'] / 60.0
-                peak_time = medication_data['peak_time_min'] / 60.0
+                peak_time = medication_data['t_peak_min'] / 60.0
                 duration = medication_data['duration_min'] / 60.0
-                # peak_effect should be based on dosage, not duration
-                peak_effect = dosage / 20.0  # Normalize to 20mg standard dose
+                # Calculate peak effect based on dosage
+                # Use standard_dose_mg if available, otherwise fall back to reasonable defaults
+                standard_dose_mg = medication_data.get('standard_dose_mg')
+                if standard_dose_mg:
+                    peak_effect = dosage / standard_dose_mg
+                else:
+                    # Fallback: use a reasonable default based on typical therapeutic ranges
+                    # This is a temporary solution until standard_dose_mg fields are added to the data
+                    peak_effect = dosage / 20.0  # Generic assumption
                 
                 # Store additional parameters for curve generation
                 peak_duration = medication_data['peak_duration_min'] / 60.0
-                wear_off_duration = medication_data['wear_off_duration_min'] / 60.0
+                wear_off_duration = medication_data['wear_off_min'] / 60.0
+                
+                # Get half-life data if available
+                half_life_hours = medication_data.get('half_life_hours')
+                
+                # Debug: print loaded medication data
+                print(f"Loaded medication data for {medication_name}: onset={onset_time:.2f}h, peak={peak_time:.2f}h, duration={duration:.2f}h, peak_effect={peak_effect:.3f}")
             else:
                 raise ValueError(f"Unknown medication: {medication_name}")
         else:
@@ -284,12 +297,14 @@ class MedicationSimulator:
             'time': dose_minutes,  # Store as minutes since midnight
             'dosage': dosage,
             'medication_name': medication_name,
-            'onset_time': onset_time,
-            'peak_time': peak_time,
-            'duration': duration,
-            'peak_effect': peak_effect,
-            'peak_duration': peak_duration,
-            'wear_off_duration': wear_off_duration,
+            'half_life_hours': half_life_hours,
+            'peak_effect': peak_effect,  # Store the calculated peak effect
+            # Store standardized minute values for PK curve generation
+            'onset_min': int(onset_time * 60),
+            't_peak_min': int(peak_time * 60),
+            'duration_min': int(duration * 60),
+            'peak_duration_min': int(peak_duration * 60),
+            'wear_off_min': int(wear_off_duration * 60),
             'type': 'medication',
             'id': len(self.medications) + len(self.stimulants)
         }
@@ -400,12 +415,27 @@ class MedicationSimulator:
         try:
             data = self._load_medications_data()
             
+            # Debug: print what we're looking for
+            print(f"Looking for medication: {medication_name}")
+            print(f"Available prescription stimulants: {list(data.get('stimulants', {}).get('prescription_stimulants', {}).keys())}")
+            print(f"Available painkillers: {list(data.get('painkillers', {}).keys())}")
+            
+            # Check prescription stimulants first
             medications = data.get('stimulants', {}).get('prescription_stimulants', {})
             
-            if medication_name not in medications:
-                return None
+            if medication_name in medications:
+                print(f"Found {medication_name} in prescription stimulants")
+                return medications[medication_name]
             
-            return medications[medication_name]
+            # Check painkillers
+            painkillers = data.get('painkillers', {})
+            
+            if medication_name in painkillers:
+                print(f"Found {medication_name} in painkillers")
+                return painkillers[medication_name]
+            
+            print(f"Medication {medication_name} not found in any category")
+            return None
             
         except Exception as e:
             print(f"Error loading prescription data: {e}")

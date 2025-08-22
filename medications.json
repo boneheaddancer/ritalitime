@@ -5,27 +5,30 @@
         "category": "stimulant",
         "default_dose_unit": "cup",
         "onset_min": 10,
-        "peak_time_min": 60,
+        "t_peak_min": 60,
         "peak_duration_min": 45,
         "duration_min": 360,
-        "wear_off_duration_min": 90
+        "wear_off_min": 90,
+        "half_life_hours": 5.0
       },
       "redbull": {
         "category": "stimulant",
         "default_dose_unit": "can",
         "caffeine": {
           "onset_min": 10,
-          "peak_time_min": 60,
+          "t_peak_min": 60,
           "peak_duration_min": 45,
           "duration_min": 360,
-          "wear_off_duration_min": 90
+          "wear_off_min": 90,
+          "half_life_hours": 5.0
         },
         "taurine": {
           "onset_min": 10,
-          "peak_time_min": 60,
+          "t_peak_min": 60,
           "peak_duration_min": 60,
           "duration_min": 420,
-          "wear_off_duration_min": 120
+          "wear_off_min": 120,
+          "half_life_hours": 1.0
         }
       },
       "monster": {
@@ -33,17 +36,19 @@
         "default_dose_unit": "can",
         "caffeine": {
           "onset_min": 10,
-          "peak_time_min": 60,
+          "t_peak_min": 60,
           "peak_duration_min": 45,
           "duration_min": 360,
-          "wear_off_duration_min": 90
+          "wear_off_min": 90,
+          "half_life_hours": 5.0
         },
         "taurine": {
           "onset_min": 10,
-          "peak_time_min": 60,
+          "t_peak_min": 60,
           "peak_duration_min": 60,
           "duration_min": 420,
-          "wear_off_duration_min": 120
+          "wear_off_min": 120,
+          "half_life_hours": 1.0
         }
       }
     },
@@ -51,83 +56,101 @@
       "ritalin_IR": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 20,
         "onset_min": 25,
-        "peak_time_min": 90,
+        "t_peak_min": 90,
         "peak_duration_min": 60,
         "duration_min": 240,
-        "wear_off_duration_min": 60
+        "wear_off_min": 60,
+        "half_life_hours": 2.5
       },
       "ritalin_LA": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 20,
         "onset_min": 60,
-        "peak_time_min": 180,
+        "t_peak_min": 180,
         "peak_duration_min": 120,
         "duration_min": 420,
-        "wear_off_duration_min": 120
+        "wear_off_min": 120,
+        "half_life_hours": 2.5
       },
       "concerta": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 36,
         "onset_min": 90,
-        "peak_time_min": 420,
+        "t_peak_min": 420,
         "peak_duration_min": 180,
         "duration_min": 720,
-        "wear_off_duration_min": 180
+        "wear_off_min": 180,
+        "half_life_hours": 2.5
       },
       "adderall_IR": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 30,
         "onset_min": 30,
-        "peak_time_min": 90,
+        "t_peak_min": 90,
         "peak_duration_min": 60,
         "duration_min": 360,
-        "wear_off_duration_min": 90
+        "wear_off_min": 90,
+        "half_life_hours": 10.0
       },
       "adderall_XR": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 30,
         "onset_min": 60,
-        "peak_time_min": 240,
+        "t_peak_min": 240,
         "peak_duration_min": 180,
         "duration_min": 720,
-        "wear_off_duration_min": 180
+        "wear_off_min": 180,
+        "half_life_hours": 10.0
       },
       "vyvanse": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 30,
         "onset_min": 90,
-        "peak_time_min": 240,
+        "t_peak_min": 240,
         "peak_duration_min": 180,
         "duration_min": 780,
-        "wear_off_duration_min": 180
+        "wear_off_min": 180,
+        "half_life_hours": 12.0
       },
       "elvanse": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 30,
         "onset_min": 90,
-        "peak_time_min": 240,
+        "t_peak_min": 240,
         "peak_duration_min": 180,
         "duration_min": 780,
-        "wear_off_duration_min": 180
+        "wear_off_min": 180,
+        "half_life_hours": 12.0
       },
       "dexedrine_IR": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 20,
         "onset_min": 30,
-        "peak_time_min": 90,
+        "t_peak_min": 90,
         "peak_duration_min": 60,
         "duration_min": 360,
-        "wear_off_duration_min": 90
+        "wear_off_min": 90,
+        "half_life_hours": 10.0
       },
       "dexedrine_ER": {
         "category": "stimulant",
         "default_dose_unit": "mg",
+        "standard_dose_mg": 20,
         "onset_min": 60,
-        "peak_time_min": 180,
+        "t_peak_min": 180,
         "peak_duration_min": 120,
         "duration_min": 480,
-        "wear_off_duration_min": 120
+        "wear_off_min": 120,
+        "half_life_hours": 10.0
       }
     }
   },
@@ -135,35 +158,35 @@
     "paracetamol_500mg": {
       "category": "painkiller",
       "default_dose_unit": "mg",
+      "standard_dose_mg": 500,
       "onset_min": 20,
-      "time_until_peak_min": 60,
+      "t_peak_min": 60,
       "peak_duration_min": 60,
       "duration_min": 300,
-      "wear_off_duration_min": 60,
-      "intensity_peak": 6,
-      "intensity_avg": 5
+      "wear_off_min": 60,
+      "half_life_hours": 2.5
     },
     "ibuprofen_400mg": {
       "category": "painkiller",
       "default_dose_unit": "mg",
+      "standard_dose_mg": 400,
       "onset_min": 30,
-      "time_until_peak_min": 90,
+      "t_peak_min": 90,
       "peak_duration_min": 120,
       "duration_min": 360,
-      "wear_off_duration_min": 90,
-      "intensity_peak": 7,
-      "intensity_avg": 6
+      "wear_off_min": 90,
+      "half_life_hours": 2.0
     },
     "panodil_665mg_mr": {
       "category": "painkiller",
       "default_dose_unit": "mg",
+      "standard_dose_mg": 665,
       "onset_min": 45,
-      "time_until_peak_min": 240,
+      "t_peak_min": 240,
       "peak_duration_min": 300,
       "duration_min": 480,
-      "wear_off_duration_min": 135,
-      "intensity_peak": 6,
-      "intensity_avg": 5
+      "wear_off_min": 135,
+      "half_life_hours": 2.5
     }
   }
 }
