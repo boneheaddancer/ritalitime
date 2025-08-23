@@ -453,13 +453,22 @@ def adhd_medications_app():
             # Add individual curves if requested
             if show_individual_curves:
                 individual_curves = st.session_state.simulator.get_individual_curves()
-                for label, curve in individual_curves:
+                
+                # Color palette for different doses
+                colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F']
+                
+                for i, (label, curve) in enumerate(individual_curves):
+                    color = colors[i % len(colors)]  # Cycle through colors
+                    
+                    # Add filled area under the curve
                     fig.add_trace(go.Scatter(
                         x=time_points,
                         y=curve,
                         mode='lines',
                         name=f"Component: {label}",
-                        line=dict(color='lightgray', width=1, dash='dot'),
+                        line=dict(color=color, width=2),
+                        fill='tonexty',
+                        fillcolor=color,
                         opacity=0.3,
                         showlegend=True,
                         hovertemplate=f"<b>{label}</b><br>Time: %{{x:.1f}}h<br>Effect: %{{y:.3f}}<extra></extra>"
@@ -472,6 +481,8 @@ def adhd_medications_app():
                 mode='lines',
                 name='Combined Effect',
                 line=dict(color='blue', width=3),
+                fill='tonexty',
+                fillcolor='rgba(30, 144, 255, 0.1)',  # Light blue fill
                 hovertemplate="<b>Combined Effect</b><br>Time: %{x:.1f}h<br>Effect: %{y:.3f}<extra></extra>"
             ))
             
