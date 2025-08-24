@@ -8,18 +8,18 @@
           "time": "08:00",
           "dosage": 20.0,
           "medication_name": "ritalin_IR",
-          "onset_time": 1.0,
-          "peak_time": 2.0,
-          "duration": 8.0,
+          "onset_time_min": 60,
+          "peak_time_min": 120,
+          "duration_min": 480,
           "peak_effect": 1.0
         },
         {
           "time": "16:00",
           "dosage": 10.0,
           "medication_name": "ritalin_IR",
-          "onset_time": 1.0,
-          "peak_time": 2.0,
-          "duration": 6.0,
+          "onset_time_min": 60,
+          "peak_time_min": 120,
+          "duration_min": 360,
           "peak_effect": 1.0
         }
       ],
@@ -36,18 +36,18 @@
           "time": "20:00",
           "dosage": 20.0,
           "medication_name": "ritalin_IR",
-          "onset_time": 1.0,
-          "peak_time": 2.0,
-          "duration": 8.0,
+          "onset_time_min": 60,
+          "peak_time_min": 120,
+          "duration_min": 480,
           "peak_effect": 1.0
         },
         {
           "time": "04:00",
           "dosage": 15.0,
           "medication_name": "ritalin_IR",
-          "onset_time": 1.0,
-          "peak_time": 2.0,
-          "duration": 6.0,
+          "onset_time_min": 60,
+          "peak_time_min": 120,
+          "duration_min": 360,
           "peak_effect": 1.0
         }
       ],
@@ -66,9 +66,9 @@
           "stimulant_name": "coffee",
           "quantity": 2.0,
           "component_name": "caffeine",
-          "onset_time": 0.25,
-          "peak_time": 1.0,
-          "duration": 4.0,
+          "onset_time_min": 15,
+          "peak_time_min": 60,
+          "duration_min": 240,
           "peak_effect": 0.8
         },
         {
@@ -76,9 +76,9 @@
           "stimulant_name": "coffee",
           "quantity": 1.0,
           "component_name": "caffeine",
-          "onset_time": 0.25,
-          "peak_time": 1.0,
-          "duration": 4.0,
+          "onset_time_min": 15,
+          "peak_time_min": 60,
+          "duration_min": 240,
           "peak_effect": 0.6
         }
       ],

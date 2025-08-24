@@ -16,7 +16,7 @@ class MedicationSimulator:
     def __init__(self):
         self.medications = []
         self.stimulants = []
-        self.time_points = np.arange(0, 24, 0.1)  # 10-minute intervals
+        self.time_points = np.array([])  # Will be set dynamically
         self.sleep_threshold = 0.3  # Effect level below which sleep is suitable
         # Saturation parameters for combined effects
         self.emax = 1.0  # Maximum combined effect (ceiling)
@@ -24,6 +24,43 @@ class MedicationSimulator:
         self.hill_coefficient = 1.5  # Hill coefficient for saturation curve
         # Track failed doses from last timeline generation
         self.last_failed_doses = []
+    
+    def _calculate_dynamic_window(self) -> Tuple[float, float]:
+        """Calculate dynamic time window based on medication timing and effects"""
+        all_doses = self.medications + self.stimulants
+        
+        if not all_doses:
+            # Default to 24 hours if no doses
+            return 0.0, 24.0
+        
+        # Find earliest dose time and latest effect end time
+        earliest_time = float('inf')
+        latest_effect_end = 0.0
+        
+        for dose in all_doses:
+            dose_time_hours = dose['time'] / 60.0  # Convert minutes to hours
+            duration_hours = dose.get('duration_min', 480) / 60.0  # Convert minutes to hours
+            effect_end = dose_time_hours + duration_hours
+            
+            earliest_time = min(earliest_time, dose_time_hours)
+            latest_effect_end = max(latest_effect_end, effect_end)
+        
+        # Add buffer time (2 hours before/after)
+        buffer_hours = 2.0
+        window_start = max(0.0, earliest_time - buffer_hours)
+        window_end = latest_effect_end + buffer_hours
+        
+        # Ensure minimum 24h window for context
+        if window_end - window_start < 24.0:
+            window_end = window_start + 24.0
+        
+        return window_start, window_end
+    
+    def _update_time_points(self):
+        """Update time points based on dynamic window calculation"""
+        start_hour, end_hour = self._calculate_dynamic_window()
+        # Create time points with 0.1 hour (6 minute) intervals
+        self.time_points = np.arange(start_hour, end_hour + 0.1, 0.1)
     
     def _time_to_minutes(self, time_str: str) -> int:
         """Convert HH:MM time string to minutes since midnight (0-1439)"""
@@ -126,16 +163,16 @@ class MedicationSimulator:
                 # Convert t to minutes for comparison
                 current_time_minutes = int(t * 60)
                 
-                # Calculate time difference with midnight wrapping for 24-hour simulation
+                # Calculate time since dose without midnight wrapping - allow effects to extend naturally
                 if current_time_minutes >= dose['time']:
                     # Same day: time since dose
                     time_since_dose = current_time_minutes - dose['time']
                 else:
-                    # Next day: wrap around midnight
-                    time_since_dose = (1440 - dose['time']) + current_time_minutes
+                    # Next day: continue linearly instead of wrapping
+                    time_since_dose = current_time_minutes + (1440 - dose['time'])
                 
-                # Process if within duration (allows effects to cross midnight)
-                if 0 <= time_since_dose <= duration_min:
+                # Process if time since dose is valid (allows effects to continue naturally)
+                if time_since_dose >= 0:
                     # Convert to minutes for comparison with PK curve
                     time_since_dose_minutes = time_since_dose
                     
@@ -201,20 +238,30 @@ class MedicationSimulator:
             if current_time_minutes >= dose_time_minutes:
                 time_since_dose = current_time_minutes - dose_time_minutes
             else:
-                time_since_dose = (1440 - dose_time_minutes) + current_time_minutes
+                # Continue linearly instead of wrapping around midnight
+                time_since_dose = current_time_minutes + (1440 - dose_time_minutes)
             
             # Convert to hours for comparison
             time_since_dose_hours = time_since_dose / 60.0
             
-            if 0 <= time_since_dose_hours < duration:
+            if time_since_dose_hours >= 0:
                 if time_since_dose_hours < peak_time:
                     effect[i] = (time_since_dose_hours / peak_time) * peak_effect
                 elif time_since_dose_hours < fall_start:
                     effect[i] = peak_effect
                 else:
-                    fall_progress = (time_since_dose_hours - fall_start) / (duration - fall_start)
-                    fall_progress = max(0, min(1, fall_progress))
-                    effect[i] = peak_effect * (1 - fall_progress)
+                    # Allow effect to continue beyond duration with natural decay
+                    if time_since_dose_hours < duration:
+                        # Within original duration - use normal falloff
+                        fall_progress = (time_since_dose_hours - fall_start) / (duration - fall_start)
+                        fall_progress = max(0, min(1, fall_progress))
+                        effect[i] = peak_effect * (1 - fall_progress)
+                    else:
+                        # Beyond duration - continue with natural decay
+                        extended_duration = duration + (time_since_dose_hours - duration) * 0.5  # Slower decay
+                        fall_progress = (time_since_dose_hours - fall_start) / (extended_duration - fall_start)
+                        fall_progress = max(0, min(1, fall_progress))
+                        effect[i] = peak_effect * (1 - fall_progress)
         
         return effect
     
@@ -325,14 +372,14 @@ class MedicationSimulator:
                     peak_effect = dosage / 20.0  # Generic assumption
                 
                 # Store additional parameters for curve generation
-                peak_duration = medication_data['peak_duration_min'] / 60.0
-                wear_off_duration = medication_data['wear_off_min'] / 60.0
+                peak_duration = medication_data['peak_duration_min']
+                wear_off_duration = medication_data['wear_off_min']
                 
                 # Get half-life data if available
-                half_life_hours = medication_data.get('half_life_hours')
+                half_life_min = medication_data.get('half_life_min')
                 
                 # Debug: print loaded medication data
-                print(f"Loaded medication data for {medication_name}: onset={onset_time:.2f}h, peak={peak_time:.2f}h, duration={duration:.2f}h, peak_effect={peak_effect:.3f}")
+                print(f"Loaded medication data for {medication_name}: onset={onset_time:.2f}h ({medication_data['onset_min']}min), peak={peak_time:.2f}h ({medication_data['t_peak_min']}min), duration={duration:.2f}h ({medication_data['duration_min']}min), peak_effect={peak_effect:.3f}")
             else:
                 raise ValueError(f"Unknown medication: {medication_name}")
         else:
@@ -341,12 +388,12 @@ class MedicationSimulator:
         
         # Override with custom parameters if provided
         if custom_params:
-            if 'onset_time' in custom_params:
-                onset_time = custom_params['onset_time']
-            if 'peak_time' in custom_params:
-                peak_time = custom_params['peak_time']
-            if 'duration' in custom_params:
-                duration = custom_params['duration']
+            if 'onset_time_min' in custom_params:
+                onset_time = custom_params['onset_time_min'] / 60.0
+            if 'peak_time_min' in custom_params:
+                peak_time = custom_params['peak_time_min'] / 60.0
+            if 'duration_min' in custom_params:
+                duration = custom_params['duration_min'] / 60.0
             if 'peak_effect' in custom_params:
                 peak_effect = custom_params['peak_effect']
             # Note: peak_duration and wear_off_duration are not overridden by custom params
@@ -362,19 +409,20 @@ class MedicationSimulator:
             'time': dose_minutes,  # Store as minutes since midnight
             'dosage': dosage,
             'medication_name': medication_name,
-            'half_life_hours': half_life_hours,
+            'half_life_min': half_life_min,
             'peak_effect': peak_effect,  # Store the calculated peak effect
             # Store standardized minute values for PK curve generation
             'onset_min': int(onset_time * 60),
             't_peak_min': int(peak_time * 60),
             'duration_min': int(duration * 60),
-            'peak_duration_min': int(peak_duration * 60),
-            'wear_off_min': int(wear_off_duration * 60),
+            'peak_duration_min': int(peak_duration),
+            'wear_off_min': int(wear_off_duration),
             'type': 'medication',
             'id': len(self.medications) + len(self.stimulants)
         }
         
         self.medications.append(medication)
+        self._update_time_points()
     
     def add_stimulant(self, dose_time: str, stimulant_name: str, component_name: str = None, 
                        quantity: float = 1.0, custom_params: Dict = None):
@@ -397,16 +445,16 @@ class MedicationSimulator:
         if not stimulant_data:
             raise ValueError(f"Unknown stimulant: {stimulant_name}" + (f" component: {component_name}" if component_name else ""))
         
-        # Convert minutes to hours
+        # Use minutes directly
         onset_time = stimulant_data['onset_min'] / 60.0
-        peak_time = stimulant_data['t_peak_min'] / 60.0  # Fixed field name
+        peak_time = stimulant_data['t_peak_min'] / 60.0
         duration = stimulant_data['duration_min'] / 60.0
         # peak_effect should be based on quantity, not duration
         peak_effect = quantity  # Base effect on quantity consumed
         
         # Store additional parameters for curve generation
-        peak_duration = stimulant_data['peak_duration_min'] / 60.0
-        wear_off_duration = stimulant_data['wear_off_min'] / 60.0  # Fixed field name
+        peak_duration = stimulant_data['peak_duration_min']
+        wear_off_duration = stimulant_data['wear_off_min']
         
         # Override with custom parameters if provided
         if custom_params:
@@ -441,6 +489,7 @@ class MedicationSimulator:
         }
         
         self.stimulants.append(stimulant)
+        self._update_time_points()
     
     def _get_stimulant_data(self, stimulant_name: str, component_name: str = None) -> Optional[Dict]:
         """Get stimulant data from the unified medications.json file"""

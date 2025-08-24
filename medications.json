@@ -9,7 +9,7 @@
         "peak_duration_min": 45,
         "duration_min": 360,
         "wear_off_min": 90,
-        "half_life_hours": 5.0
+        "half_life_min": 300
       },
       "redbull": {
         "category": "stimulant",
@@ -20,7 +20,7 @@
           "peak_duration_min": 45,
           "duration_min": 360,
           "wear_off_min": 90,
-          "half_life_hours": 5.0
+          "half_life_min": 300
         },
         "taurine": {
           "onset_min": 10,
@@ -28,7 +28,7 @@
           "peak_duration_min": 60,
           "duration_min": 420,
           "wear_off_min": 120,
-          "half_life_hours": 1.0
+          "half_life_min": 60
         }
       },
       "monster": {
@@ -40,7 +40,7 @@
           "peak_duration_min": 45,
           "duration_min": 360,
           "wear_off_min": 90,
-          "half_life_hours": 5.0
+          "half_life_min": 300
         },
         "taurine": {
           "onset_min": 10,
@@ -48,7 +48,7 @@
           "peak_duration_min": 60,
           "duration_min": 420,
           "wear_off_min": 120,
-          "half_life_hours": 1.0
+          "half_life_min": 60
         }
       }
     },
@@ -62,7 +62,7 @@
         "peak_duration_min": 60,
         "duration_min": 240,
         "wear_off_min": 60,
-        "half_life_hours": 2.5
+        "half_life_min": 150
       },
       "ritalin_LA": {
         "category": "stimulant",
@@ -73,7 +73,7 @@
         "peak_duration_min": 120,
         "duration_min": 420,
         "wear_off_min": 120,
-        "half_life_hours": 2.5
+        "half_life_min": 150
       },
       "concerta": {
         "category": "stimulant",
@@ -84,7 +84,7 @@
         "peak_duration_min": 180,
         "duration_min": 720,
         "wear_off_min": 180,
-        "half_life_hours": 2.5
+        "half_life_min": 150
       },
       "adderall_IR": {
         "category": "stimulant",
@@ -95,7 +95,7 @@
         "peak_duration_min": 60,
         "duration_min": 360,
         "wear_off_min": 90,
-        "half_life_hours": 10.0
+        "half_life_min": 600
       },
       "adderall_XR": {
         "category": "stimulant",
@@ -106,7 +106,7 @@
         "peak_duration_min": 180,
         "duration_min": 720,
         "wear_off_min": 180,
-        "half_life_hours": 10.0
+        "half_life_min": 600
       },
       "vyvanse": {
         "category": "stimulant",
@@ -117,18 +117,18 @@
         "peak_duration_min": 180,
         "duration_min": 780,
         "wear_off_min": 180,
-        "half_life_hours": 12.0
+        "half_life_min": 720
       },
       "elvanse": {
         "category": "stimulant",
         "default_dose_unit": "mg",
-        "standard_dose_mg": 30,
-        "onset_min": 90,
+        "standard_dose_mg": 20,
+        "onset_min": 30,
         "t_peak_min": 240,
         "peak_duration_min": 180,
         "duration_min": 780,
         "wear_off_min": 180,
-        "half_life_hours": 12.0
+        "half_life_min": 720
       },
       "dexedrine_IR": {
         "category": "stimulant",
@@ -139,7 +139,7 @@
         "peak_duration_min": 60,
         "duration_min": 360,
         "wear_off_min": 90,
-        "half_life_hours": 10.0
+        "half_life_min": 600
       },
       "dexedrine_ER": {
         "category": "stimulant",
@@ -150,7 +150,7 @@
         "peak_duration_min": 120,
         "duration_min": 480,
         "wear_off_min": 120,
-        "half_life_hours": 10.0
+        "half_life_min": 600
       }
     }
   },
@@ -164,7 +164,7 @@
       "peak_duration_min": 60,
       "duration_min": 300,
       "wear_off_min": 60,
-      "half_life_hours": 2.5
+      "half_life_min": 150
     },
     "ibuprofen_400mg": {
       "category": "painkiller",
@@ -175,7 +175,7 @@
       "peak_duration_min": 120,
       "duration_min": 360,
       "wear_off_min": 90,
-      "half_life_hours": 2.0
+      "half_life_min": 120
     },
     "panodil_665mg_mr": {
       "category": "painkiller",
@@ -186,7 +186,7 @@
       "peak_duration_min": 300,
       "duration_min": 480,
       "wear_off_min": 135,
-      "half_life_hours": 2.5
+      "half_life_min": 150
     }
   }
 }

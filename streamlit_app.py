@@ -8,9 +8,148 @@ from medication_simulator import MedicationSimulator
 import json
 from datetime import datetime, time, timedelta
 import io
+import base64
 
 print("Imports completed successfully")
 
+# localStorage functionality for input data persistence
+def save_to_local_storage(data, key):
+    """Save data to localStorage using base64 encoding"""
+    try:
+        # Convert data to JSON string and encode to base64
+        json_str = json.dumps(data, default=str)
+        encoded_data = base64.b64encode(json_str.encode()).decode()
+        
+        # Store in session state (this will persist across reruns)
+        # Only try to access session state if it's available
+        try:
+            st.session_state[f"localStorage_{key}"] = encoded_data
+        except Exception as e:
+            print(f"Warning: Could not save to session state: {e}")
+            return False
+        
+        # Note: Browser localStorage not accessible in Streamlit, only session state is used
+            
+        return True
+    except Exception as e:
+        print(f"Error saving to localStorage: {e}")
+        return False
+
+def load_from_local_storage(key, default=None):
+    """Load data from localStorage"""
+    try:
+        # Only try to get from session state (browser localStorage not accessible in Streamlit)
+        try:
+            if f"localStorage_{key}" in st.session_state:
+                encoded_data = st.session_state[f"localStorage_{key}"]
+                json_str = base64.b64decode(encoded_data.encode()).decode()
+                return json.loads(json_str)
+        except Exception as e:
+            print(f"Warning: Could not access session state: {e}")
+            return default
+            
+        return default
+    except Exception as e:
+        print(f"Error loading from localStorage: {e}")
+        return default
+
+def clear_local_storage(key):
+    """Clear data from localStorage"""
+    try:
+        # Remove from session state
+        # Only try to access session state if it's available
+        try:
+            if f"localStorage_{key}" in st.session_state:
+                del st.session_state[f"localStorage_{key}"]
+        except Exception as e:
+            print(f"Warning: Could not access session state: {e}")
+            return False
+        
+        # Note: Browser localStorage not accessible in Streamlit, only session state is used
+            
+        return True
+    except Exception as e:
+        print(f"Error clearing localStorage: {e}")
+        return False
+
+def save_painkiller_doses(doses):
+    """Save painkiller doses to localStorage"""
+    return save_to_local_storage(doses, 'painkiller_doses')
+
+def load_painkiller_doses():
+    """Load painkiller doses from localStorage"""
+    return load_from_local_storage('painkiller_doses', [])
+
+def save_simulator_data(simulator):
+    """Save simulator data (medications + stimulants) to localStorage"""
+    simulator_data = {
+        'medications': simulator.medications,
+        'stimulants': simulator.stimulants,
+        'sleep_threshold': simulator.sleep_threshold
+    }
+    return save_to_local_storage(simulator_data, 'simulator_data')
+
+def load_simulator_data():
+    """Load simulator data from localStorage"""
+    return load_from_local_storage('simulator_data', {
+        'medications': [],
+        'stimulants': [],
+        'sleep_threshold': 0.3
+    })
+
+# Initialize localStorage keys
+LOCAL_STORAGE_KEYS = {
+    'medication_inputs': 'medication_inputs',
+    'stimulant_inputs': 'stimulant_inputs', 
+    'painkiller_inputs': 'painkiller_inputs',
+    'painkiller_doses': 'painkiller_doses',  # Add persistence for actual doses
+    'simulator_data': 'simulator_data',  # Add persistence for simulator data
+    'sleep_settings': 'sleep_settings',
+    'app_settings': 'app_settings'
+}
+
+# Load saved input data on app startup
+def initialize_local_storage():
+    """Initialize localStorage with saved data"""
+    try:
+        if 'localStorage_initialized' not in st.session_state:
+            st.session_state.localStorage_initialized = True
+            
+            # Load saved medication inputs
+            saved_med_inputs = load_from_local_storage(LOCAL_STORAGE_KEYS['medication_inputs'], {})
+            if saved_med_inputs:
+                st.session_state.saved_medication_inputs = saved_med_inputs
+            
+            # Load saved stimulant inputs  
+            saved_stim_inputs = load_from_local_storage(LOCAL_STORAGE_KEYS['stimulant_inputs'], {})
+            if saved_stim_inputs:
+                st.session_state.saved_stimulant_inputs = saved_stim_inputs
+            
+            # Load saved painkiller inputs
+            saved_pk_inputs = load_from_local_storage(LOCAL_STORAGE_KEYS['painkiller_inputs'], {})
+            if saved_pk_inputs:
+                st.session_state.saved_painkiller_inputs = saved_pk_inputs
+            
+            # Load saved sleep settings
+            saved_sleep = load_from_local_storage(LOCAL_STORAGE_KEYS['sleep_settings'], {})
+            if saved_sleep:
+                st.session_state.saved_sleep_settings = saved_sleep
+            
+            # Load saved app settings
+            saved_app = load_from_local_storage(LOCAL_STORAGE_KEYS['app_settings'], {})
+            if saved_app:
+                st.session_state.saved_app_settings = saved_app
+    except Exception as e:
+        print(f"Error initializing localStorage: {e}")
+        # Don't fail the app if localStorage fails
+        pass
+
+# Auto-save function for input changes
+def auto_save_inputs(input_type, data):
+    """Automatically save input data when it changes"""
+    key = LOCAL_STORAGE_KEYS.get(f'{input_type}_inputs')
+    if key:
+        save_to_local_storage(data, key)
 
 # Load unified medications file with error handling
 print("Attempting to load medications.json...")
@@ -133,6 +272,19 @@ def format_time_hours_minutes(decimal_hours):
     minutes = int((decimal_hours % 1) * 60)
     return f"{hours:02d}:{minutes:02d}"
 
+def format_time_across_midnight(decimal_hours):
+    """Convert decimal hours to HH:MM format, handling times across midnight"""
+    if decimal_hours < 24:
+        # Same day: use standard HH:MM format
+        hours = int(decimal_hours)
+        minutes = int((decimal_hours % 1) * 60)
+        return f"{hours:02d}:{minutes:02d}"
+    else:
+        # Next day: convert back to 0-23 format (e.g., 25:00 becomes 01:00)
+        hours = int(decimal_hours) % 24
+        minutes = int((decimal_hours % 1) * 60)
+        return f"{hours:02d}:{minutes:02d}"
+
 def format_duration_hours_minutes(decimal_hours):
     """Convert decimal hours to duration format (e.g., 2h 30m)"""
     try:
@@ -165,6 +317,33 @@ def format_duration_hours_minutes(decimal_hours):
         # Fallback for invalid input
         return f"{decimal_hours:.2f}h"
 
+def format_duration_minutes(total_minutes):
+    """Convert total minutes to duration format (e.g., 2h 30m)"""
+    try:
+        # Ensure input is a valid number
+        total_minutes = int(total_minutes)
+        
+        # Handle negative values
+        if total_minutes < 0:
+            return f"{total_minutes}m"
+        
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        
+        # Format output
+        if hours > 0 and minutes > 0:
+            return f"{hours}h {minutes}m"
+        elif hours > 0:
+            return f"{hours}h"
+        elif minutes > 0:
+            return f"{minutes}m"
+        else:
+            return "0m"  # Handle exactly 0 minutes
+            
+    except (TypeError, ValueError, AttributeError):
+        # Fallback for invalid input
+        return f"{total_minutes}m"
+
 # Page configuration
 st.set_page_config(
     page_title="ADHD Medication & Stimulant Timeline Simulator",
@@ -175,20 +354,57 @@ st.set_page_config(
 
 # Initialize session state
 if 'simulator' not in st.session_state:
-    st.session_state.simulator = MedicationSimulator()
-    print("MedicationSimulator initialized")
+    try:
+        # Try to load simulator data from localStorage first
+        saved_simulator_data = load_simulator_data()
+        st.session_state.simulator = MedicationSimulator()
+        
+        # Restore saved data if available
+        if saved_simulator_data and isinstance(saved_simulator_data, dict):
+            if saved_simulator_data.get('medications') or saved_simulator_data.get('stimulants'):
+                st.session_state.simulator.medications = saved_simulator_data.get('medications', [])
+                st.session_state.simulator.stimulants = saved_simulator_data.get('stimulants', [])
+                st.session_state.simulator.sleep_threshold = saved_simulator_data.get('sleep_threshold', 0.3)
+                print("MedicationSimulator initialized with saved data")
+            else:
+                print("MedicationSimulator initialized with default data")
+        else:
+            print("MedicationSimulator initialized with default data")
+    except Exception as e:
+        print(f"Error initializing simulator: {e}")
+        st.session_state.simulator = MedicationSimulator()
+        print("MedicationSimulator initialized with fallback defaults")
 
 print("Streamlit app loaded successfully")
 
 def main():
     print("Main function called")
+    
+    # Initialize localStorage after Streamlit is ready
+    if 'localStorage_initialized' not in st.session_state:
+        initialize_local_storage()
+    
     # Navigation
     st.sidebar.title("📱 App Navigation")
+    
+    # Load saved app settings
+    saved_app_settings = st.session_state.get('saved_app_settings', {})
+    default_app_mode = saved_app_settings.get('app_mode', "ADHD Medications")
+    
     app_mode = st.sidebar.selectbox(
         "Choose Application",
         ["ADHD Medications", "Painkillers"],
+        index=0 if default_app_mode == "ADHD Medications" else 1,
         key="app_navigation"
     )
+    
+    # Auto-save app navigation selection
+    current_app_settings = {
+        'app_mode': app_mode
+    }
+    save_to_local_storage(current_app_settings, LOCAL_STORAGE_KEYS['app_settings'])
+    
+
     
     if app_mode == "ADHD Medications":
         print("Calling ADHD medications app")
@@ -200,6 +416,10 @@ def main():
 def adhd_medications_app():
     st.title("💊 ADHD Medication & Stimulant Timeline Simulator")
     st.markdown("Simulate and visualize medication and stimulant effects throughout the day")
+    
+    # Show localStorage status
+    if any(key in st.session_state for key in ['saved_medication_inputs', 'saved_stimulant_inputs', 'saved_painkiller_inputs', 'saved_sleep_settings', 'saved_app_settings']):
+        st.success("💾 **Input Data Saved**: Your preferences are automatically saved and will be restored when you return.")
     
     # Sidebar for dose management
     with st.sidebar:
@@ -219,12 +439,39 @@ def adhd_medications_app():
             if not available_medications:
                 st.error("No medications available. Please check that medications.json is properly loaded.")
             else:
+                # Load saved medication inputs
+                saved_med_inputs = st.session_state.get('saved_medication_inputs', {})
+                default_time = time(8, 0)
+                default_med = available_medications[0] if available_medications else None
+                default_dosage = 20.0
+                
+                if saved_med_inputs:
+                    try:
+                        if 'dose_time' in saved_med_inputs:
+                            time_str = saved_med_inputs['dose_time']
+                            hour, minute = map(int, time_str.split(':'))
+                            default_time = time(hour, minute)
+                        if 'medication_name' in saved_med_inputs and saved_med_inputs['medication_name'] in available_medications:
+                            default_med = saved_med_inputs['medication_name']
+                        if 'dosage' in saved_med_inputs:
+                            default_dosage = float(saved_med_inputs['dosage'])
+                    except:
+                        pass
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    dose_time = st.time_input("Dose Time", value=time(8, 0), key="med_time")
-                    medication_name = st.selectbox("Medication Type", available_medications, key="med_name")
+                    dose_time = st.time_input("Dose Time", value=default_time, key="med_time")
+                    medication_name = st.selectbox("Medication Type", available_medications, index=available_medications.index(default_med) if default_med else 0, key="med_name")
                 with col2:
-                    dosage = st.number_input("Dosage (mg)", min_value=1.0, max_value=100.0, value=20.0, step=1.0, key="med_dosage")
+                    dosage = st.number_input("Dosage (mg)", min_value=1.0, max_value=100.0, value=default_dosage, step=1.0, key="med_dosage")
+                
+                # Auto-save medication inputs
+                current_med_inputs = {
+                    'dose_time': dose_time.strftime("%H:%M"),
+                    'medication_name': medication_name,
+                    'dosage': dosage
+                }
+                auto_save_inputs('medication', current_med_inputs)
             
             # Show medication info if prescription medication is selected
             if medication_name and medication_name != 'Custom':
@@ -260,28 +507,46 @@ def adhd_medications_app():
                         # Use peak_effect from medication data instead of peak_duration
                         default_effect = float(med_info.get('peak_effect', 1.0))
                     
-                    onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, value=round(default_onset, 1), step=0.1, key="med_onset")
-                    peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, value=round(default_peak, 1), step=0.1, key="med_peak")
-                    duration = st.slider("Duration (hours)", 4.0, 16.0, value=round(default_duration, 1), step=0.5, key="med_duration")
-                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="med_effect")
+                    # Load saved advanced parameters
+                    saved_adv_params = saved_med_inputs.get('advanced_params', {})
+                    default_onset_saved = saved_adv_params.get('onset_time', round(default_onset, 1))
+                    default_peak_saved = saved_adv_params.get('peak_time', round(default_peak, 1))
+                    default_duration_saved = saved_adv_params.get('duration', round(default_duration, 1))
+                    default_effect_saved = saved_adv_params.get('peak_effect', round(default_effect, 1))
+                    
+                    onset_time = st.slider("Onset Time (hours)", 0.5, 3.0, value=default_onset_saved, step=0.1, key="med_onset")
+                    peak_time = st.slider("Peak Time (hours)", 1.0, 6.0, value=default_peak_saved, step=0.1, key="med_peak")
+                    duration = st.slider("Duration (hours)", 4.0, 16.0, value=default_duration_saved, step=0.5, key="med_duration")
+                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=default_effect_saved, step=0.1, key="med_effect")
                     
                     # Show what values are being overridden
                     st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
                     st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
+                    
+                    # Auto-save advanced parameters
+                    current_med_inputs['advanced_params'] = {
+                        'onset_time': onset_time,
+                        'peak_time': peak_time,
+                        'duration': duration,
+                        'peak_effect': peak_effect
+                    }
+                    auto_save_inputs('medication', current_med_inputs)
             
             if medication_name and st.button("➕ Add Medication", type="primary", key="add_med"):
                 time_str = dose_time.strftime("%H:%M")
                 
                 # Use prescription medication with custom parameters as override
                 custom_params = {
-                    'onset_time': onset_time,
-                    'peak_time': peak_time,
-                    'duration': duration,
+                    'onset_time_min': int(onset_time * 60),
+                    'peak_time_min': int(peak_time * 60),
+                    'duration_min': int(duration * 60),
                     'peak_effect': peak_effect
                 }
                 st.session_state.simulator.add_medication(
                     time_str, dosage, medication_name=medication_name, custom_params=custom_params
                 )
+                # Save simulator data to localStorage for persistence
+                save_simulator_data(st.session_state.simulator)
                 st.success(f"Added {dosage}mg {medication_name} at {time_str}")
                 
                 st.rerun()
@@ -297,12 +562,39 @@ def adhd_medications_app():
             if not available_stimulants:
                 st.error("No stimulants available. Please check that medications.json is properly loaded.")
             else:
+                # Load saved stimulant inputs
+                saved_stim_inputs = st.session_state.get('saved_stimulant_inputs', {})
+                default_stim_time = time(9, 0)
+                default_stim = available_stimulants[0] if available_stimulants else None
+                default_quantity = 1.0
+                
+                if saved_stim_inputs:
+                    try:
+                        if 'stim_time' in saved_stim_inputs:
+                            time_str = saved_stim_inputs['stim_time']
+                            hour, minute = map(int, time_str.split(':'))
+                            default_stim_time = time(hour, minute)
+                        if 'stimulant_name' in saved_stim_inputs and saved_stim_inputs['stimulant_name'] in available_stimulants:
+                            default_stim = saved_stim_inputs['stimulant_name']
+                        if 'quantity' in saved_stim_inputs:
+                            default_quantity = float(saved_stim_inputs['quantity'])
+                    except:
+                        pass
+                
                 col1, col2 = st.columns(2)
                 with col1:
-                    stim_time = st.time_input("Consumption Time", value=time(9, 0), key="stim_time")
-                    stimulant_name = st.selectbox("Stimulant", available_stimulants, key="stim_name")
+                    stim_time = st.time_input("Consumption Time", value=default_stim_time, key="stim_time")
+                    stimulant_name = st.selectbox("Stimulant", available_stimulants, index=available_stimulants.index(default_stim) if default_stim else 0, key="stim_name")
                 with col2:
-                    quantity = st.number_input("Quantity", min_value=0.5, max_value=5.0, value=1.0, step=0.5, key="stim_quantity")
+                    quantity = st.number_input("Quantity", min_value=0.5, max_value=5.0, value=default_quantity, step=0.5, key="stim_quantity")
+                
+                # Auto-save stimulant inputs
+                current_stim_inputs = {
+                    'stim_time': stim_time.strftime("%H:%M"),
+                    'stimulant_name': stimulant_name,
+                    'quantity': quantity
+                }
+                auto_save_inputs('stimulant', current_stim_inputs)
             
             # Show component selection for complex stimulants
             component_name = None
@@ -330,28 +622,46 @@ def adhd_medications_app():
                         default_duration = float(stim_info.get('duration_min', 360)) / 60.0
                         default_effect = float(stim_info.get('peak_duration_min', 45)) / 60.0
                     
-                    onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, value=round(default_onset, 1), step=0.1, key="stim_onset")
-                    peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, value=round(default_peak, 1), step=0.1, key="stim_peak")
-                    duration = st.slider("Duration (hours)", 2.0, 12.0, value=round(default_duration, 1), step=0.5, key="stim_duration")
-                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=round(default_effect, 1), step=0.1, key="stim_effect")
+                    # Load saved advanced parameters
+                    saved_adv_params = saved_stim_inputs.get('advanced_params', {})
+                    default_onset_saved = saved_adv_params.get('onset_time', round(default_onset, 1))
+                    default_peak_saved = saved_adv_params.get('peak_time', round(default_peak, 1))
+                    default_duration_saved = saved_adv_params.get('duration', round(default_duration, 1))
+                    default_effect_saved = saved_adv_params.get('peak_effect', round(default_effect, 1))
+                    
+                    onset_time = st.slider("Onset Time (hours)", 0.1, 2.0, value=default_onset_saved, step=0.1, key="stim_onset")
+                    peak_time = st.slider("Peak Time (hours)", 0.5, 3.0, value=default_peak_saved, step=0.1, key="stim_peak")
+                    duration = st.slider("Duration (hours)", 2.0, 12.0, value=default_duration_saved, step=0.5, key="stim_duration")
+                    peak_effect = st.slider("Peak Effect", 0.1, 2.0, value=default_effect_saved, step=0.1, key="stim_effect")
                     
                     # Show what values are being overridden
                     st.info(f"**Current JSON values**: Onset {format_duration_hours_minutes(default_onset)}, Peak {format_duration_hours_minutes(default_peak)}, Duration {format_duration_hours_minutes(default_duration)}, Effect {default_effect:.2f}")
                     st.info(f"**Override values**: Onset {format_duration_hours_minutes(onset_time)}, Peak {format_duration_hours_minutes(peak_time)}, Duration {format_duration_hours_minutes(duration)}, Effect {peak_effect:.2f}")
+                    
+                    # Auto-save advanced parameters
+                    current_stim_inputs['advanced_params'] = {
+                        'onset_time': onset_time,
+                        'peak_time': peak_time,
+                        'duration': duration,
+                        'peak_effect': peak_effect
+                    }
+                    auto_save_inputs('stimulant', current_stim_inputs)
             
             if stimulant_name and st.button("➕ Add Stimulant", type="primary", key="add_stim"):
                 time_str = stim_time.strftime("%H:%M")
                 
                 # Use stimulant with custom parameters as override
                 custom_params = {
-                    'onset_time': onset_time,
-                    'peak_time': peak_time,
-                    'duration': duration,
+                    'onset_time_min': int(onset_time * 60),
+                    'peak_time_min': int(peak_time * 60),
+                    'duration_min': int(duration * 60),
                     'peak_effect': peak_effect
                 }
                 st.session_state.simulator.add_stimulant(
                     time_str, stimulant_name, component_name, quantity, custom_params
                 )
+                # Save simulator data to localStorage for persistence
+                save_simulator_data(st.session_state.simulator)
                 st.success(f"Added {quantity}x {stimulant_name} at {time_str}")
                 
                 st.rerun()
@@ -366,14 +676,36 @@ def adhd_medications_app():
             if st.button("📥 Load Profile", key="load_profile"):
                 selected_profile_data = next(p for p in profiles if p.get('name') == selected_profile)
                 
-                # Convert profile data to simulator format
+                # Convert profile data to simulator format and handle old field names
+                medications = []
+                for med in selected_profile_data.get('medications', []):
+                    converted_med = med.copy()
+                    # Convert old field names to new ones if they exist
+                    if 'onset_time' in med:
+                        converted_med['onset_time_min'] = int(med['onset_time'] * 60)
+                        converted_med['peak_time_min'] = int(med['peak_time'] * 60)
+                        converted_med['duration_min'] = int(med['duration'] * 60)
+                    medications.append(converted_med)
+                
+                stimulants = []
+                for stim in selected_profile_data.get('stimulants', []):
+                    converted_stim = stim.copy()
+                    # Convert old field names to new ones if they exist
+                    if 'onset_time' in stim:
+                        converted_stim['onset_time_min'] = int(stim['onset_time'] * 60)
+                        converted_stim['peak_time_min'] = int(stim['peak_time'] * 60)
+                        converted_stim['duration_min'] = int(stim['duration'] * 60)
+                    stimulants.append(converted_stim)
+                
                 simulator_data = {
-                    'medications': selected_profile_data.get('medications', []),
-                    'stimulants': selected_profile_data.get('stimulants', []),
+                    'medications': medications,
+                    'stimulants': stimulants,
                     'sleep_threshold': selected_profile_data.get('sleep_threshold', 0.3)
                 }
                 
                 st.session_state.simulator.import_schedule(simulator_data)
+                # Save simulator data to localStorage for persistence
+                save_simulator_data(st.session_state.simulator)
                 st.success(f"Loaded profile: {selected_profile}")
                 st.rerun()
         
@@ -402,6 +734,8 @@ def adhd_medications_app():
                 with col3:
                     if st.button("❌", key=f"remove_{dose['id']}"):
                         st.session_state.simulator.remove_dose(dose['id'])
+                        # Save simulator data to localStorage for persistence
+                        save_simulator_data(st.session_state.simulator)
                         st.rerun()
         else:
             st.info("No doses added yet. Add some medications or stimulants above!")
@@ -410,20 +744,62 @@ def adhd_medications_app():
         if all_doses:
             if st.button("🗑️ Clear All Doses", type="secondary"):
                 st.session_state.simulator.clear_all_doses()
+                # Save simulator data to localStorage for persistence
+                save_simulator_data(st.session_state.simulator)
                 st.rerun()
         
         # Sleep threshold adjustment
         st.header("😴 Sleep Settings")
+        
+        # Show current sleep threshold impact
+        current_threshold = st.session_state.simulator.sleep_threshold
+        temp_simulator = MedicationSimulator()
+        temp_simulator.medications = st.session_state.simulator.medications.copy()
+        temp_simulator.stimulants = st.session_state.simulator.stimulants.copy()
+        
+        # Test different thresholds
+        threshold_impact = []
+        for test_threshold in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+            temp_simulator.sleep_threshold = test_threshold
+            time_points, combined_effect = temp_simulator.generate_daily_timeline()
+            if len(combined_effect) > 0:
+                sleep_windows = temp_simulator.find_sleep_windows(combined_effect)
+                total_sleep_time = sum(end - start for start, end in sleep_windows)
+                threshold_impact.append({
+                    "Threshold": f"{test_threshold:.1f}",
+                    "Sleep Windows": len(sleep_windows),
+                    "Total Sleep Time": f"{total_sleep_time:.1f}h",
+                    "Current": "✅" if test_threshold == current_threshold else ""
+                })
+        
+        if threshold_impact:
+            st.write("**Threshold Impact Preview:**")
+            impact_df = pd.DataFrame(threshold_impact)
+            st.dataframe(impact_df, use_container_width=True, hide_index=True)
+        
+        # Load saved sleep settings
+        saved_sleep_settings = st.session_state.get('saved_sleep_settings', {})
+        default_sleep_threshold = saved_sleep_settings.get('sleep_threshold', st.session_state.simulator.sleep_threshold)
+        
         sleep_threshold = st.slider(
             "Sleep Threshold (effect level below which sleep is suitable)",
-            0.1, 1.0, st.session_state.simulator.sleep_threshold, 0.05
+            0.1, 1.0, default_sleep_threshold, 0.05
         )
+        
+        # Auto-save sleep settings
+        current_sleep_settings = {
+            'sleep_threshold': sleep_threshold
+        }
+        save_to_local_storage(current_sleep_settings, LOCAL_STORAGE_KEYS['sleep_settings'])
+        
         if sleep_threshold != st.session_state.simulator.sleep_threshold:
             st.session_state.simulator.sleep_threshold = sleep_threshold
+            # Save simulator data to localStorage for persistence
+            save_simulator_data(st.session_state.simulator)
             st.rerun()
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
+    # Main content area - Make graph wider
+    col1, col2 = st.columns([4, 1])
     
     with col1:
         # Generate timeline (no caching to ensure real-time updates)
@@ -495,6 +871,18 @@ def adhd_medications_app():
                 annotation_position="top right"
             )
             
+            # Add sleep quality indicator (inverted effect level for sleep)
+            sleep_quality = np.maximum(0, sleep_threshold - combined_effect)
+            fig.add_trace(go.Scatter(
+                x=time_points,
+                y=sleep_quality,
+                mode='lines',
+                name='Sleep Quality',
+                line=dict(color='purple', width=2, dash='dot'),
+                yaxis='y2',
+                hovertemplate="<b>Sleep Quality</b><br>Time: %{x:.1f}h<br>Quality: %{y:.3f}<extra></extra>"
+            ))
+            
             # Add vertical rules for key time points
             all_doses = st.session_state.simulator.get_all_doses()
             for dose in all_doses:
@@ -536,35 +924,284 @@ def adhd_medications_app():
                     y=1.02,
                     xanchor="right",
                     x=1
+                ),
+                yaxis2=dict(
+                    title="Sleep Quality",
+                    overlaying="y",
+                    side="right",
+                    range=[0, sleep_threshold],
+                    tickformat=".2f"
                 )
             )
             
-            # Update x-axis to show time labels
-            fig.update_xaxes(
-                tickmode='array',
-                tickvals=list(range(0, 25, 2)),
-                ticktext=[f"{h:02d}:00" for h in range(0, 25, 2)]
-            )
+            # Update x-axis to show dynamic time labels
+            if len(time_points) > 0:
+                start_hour = time_points.min()
+                end_hour = time_points.max()
+                
+                # Create ticks that span the full range
+                if end_hour - start_hour <= 24:
+                    # For 24h or less, use 2-hour spacing
+                    tick_hours = list(range(int(start_hour), int(end_hour) + 1, 2))
+                else:
+                    # For longer periods, use 3-4 hour spacing
+                    spacing = max(2, int((end_hour - start_hour) // 8))
+                    tick_hours = list(range(int(start_hour), int(end_hour) + 1, spacing))
+                
+                # Ensure we have start and end points
+                if start_hour not in tick_hours:
+                    tick_hours.insert(0, start_hour)
+                if end_hour not in tick_hours:
+                    tick_hours.append(end_hour)
+                    
+                tick_labels = [format_time_across_midnight(hour) for hour in tick_hours]
+                
+                fig.update_xaxes(
+                    tickmode='array',
+                    tickvals=tick_hours,
+                    ticktext=tick_labels,
+                    range=[start_hour, end_hour]
+                )
+            else:
+                # Fallback to 24h format
+                fig.update_xaxes(
+                    tickmode='array',
+                    tickvals=list(range(0, 25, 2)),
+                    ticktext=[f"{h:02d}:00" for h in range(0, 25, 2)]
+                )
             
             st.plotly_chart(fig, use_container_width=True)
             
             # Sleep window analysis
             sleep_windows = st.session_state.simulator.find_sleep_windows(combined_effect)
             if sleep_windows:
-                st.subheader("😴 Sleep Windows")
-                sleep_info = []
-                for start, end in sleep_windows:
-                    duration = end - start
-                    sleep_info.append({
-                        "Start Time": format_time_hours_minutes(start),
-                        "End Time": format_time_hours_minutes(end),
-                        "Duration": format_duration_hours_minutes(duration)
-                    })
+                st.subheader("😴 Sleep Windows Analysis")
                 
-                sleep_df = pd.DataFrame(sleep_info)
-                st.dataframe(sleep_df, use_container_width=True)
+                # Add sleep windows to the chart as shaded areas
+                for i, (start, end) in enumerate(sleep_windows):
+                    # Calculate sleep quality based on effect level during the window
+                    start_idx = np.argmin(np.abs(np.array(time_points) - start))
+                    end_idx = np.argmin(np.abs(np.array(time_points) - end))
+                    window_effects = combined_effect[start_idx:end_idx+1]
+                    avg_effect = np.mean(window_effects) if len(window_effects) > 0 else 0
+                    max_effect = np.max(window_effects) if len(window_effects) > 0 else 0
+                    
+                    # Determine sleep quality
+                    if max_effect <= sleep_threshold * 0.5:
+                        quality = "Excellent"
+                        quality_color = "green"
+                        quality_emoji = "🟢"
+                    elif max_effect <= sleep_threshold * 0.8:
+                        quality = "Good"
+                        quality_color = "lightgreen"
+                        quality_emoji = "🟡"
+                    else:
+                        quality = "Fair"
+                        quality_color = "orange"
+                        quality_emoji = "🟠"
+                    
+                    # Add shaded area to chart
+                    fig.add_vrect(
+                        x0=start, x1=end,
+                        fillcolor=quality_color,
+                        opacity=0.2,
+                        layer="below",
+                        line_width=0,
+                        annotation_text=f"Sleep Window {i+1}<br>{quality_emoji} {quality}",
+                        annotation_position="top left"
+                    )
+                
+                # Enhanced sleep windows display - Make table wider
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    # Sleep windows table with quality assessment
+                    sleep_info = []
+                    for i, (start, end) in enumerate(sleep_windows):
+                        duration = end - start
+                        
+                        # Check medication timing relative to sleep window
+                        nearby_meds = []
+                        for dose in all_doses:
+                            dose_time_hours = st.session_state.simulator._minutes_to_decimal_hours(dose['time'])
+                            # Check if dose is within 4 hours before sleep window
+                            if start - 4 <= dose_time_hours <= start:
+                                if dose['type'] == 'medication':
+                                    nearby_meds.append(f"{dose['dosage']}mg {dose.get('medication_name', 'medication')}")
+                                else:
+                                    nearby_meds.append(f"{dose['quantity']}x {dose['stimulant_name']}")
+                        
+                        # Calculate sleep quality
+                        start_idx = np.argmin(np.abs(np.array(time_points) - start))
+                        end_idx = np.argmin(np.abs(np.array(time_points) - end))
+                        window_effects = combined_effect[start_idx:end_idx+1]
+                        max_effect = np.max(window_effects) if len(window_effects) > 0 else 0
+                        
+                        if max_effect <= sleep_threshold * 0.5:
+                            quality = "Excellent"
+                            quality_emoji = "🟢"
+                        elif max_effect <= sleep_threshold * 0.8:
+                            quality = "Good"
+                            quality_emoji = "🟡"
+                        else:
+                            quality = "Fair"
+                            quality_emoji = "🟠"
+                        
+                        sleep_info.append({
+                            "Window": f"#{i+1}",
+                            "Start": format_time_hours_minutes(start),
+                            "End": format_time_hours_minutes(end),
+                            "Duration": format_duration_hours_minutes(duration),
+                            "Quality": f"{quality_emoji} {quality}",
+                            "Nearby Doses": ", ".join(nearby_meds) if nearby_meds else "None"
+                        })
+                    
+                    sleep_df = pd.DataFrame(sleep_info)
+                    st.dataframe(sleep_df, use_container_width=True, hide_index=True)
+                
+                with col2:
+                    # Sleep insights and recommendations
+                    st.subheader("💡 Sleep Insights")
+                    
+                    # Find best sleep window
+                    best_window = None
+                    best_quality = 0
+                    for i, (start, end) in enumerate(sleep_windows):
+                        start_idx = np.argmin(np.abs(np.array(time_points) - start))
+                        end_idx = np.argmin(np.abs(np.array(time_points) - end))
+                        window_effects = combined_effect[start_idx:end_idx+1]
+                        max_effect = np.max(window_effects) if len(window_effects) > 0 else 0
+                        quality_score = sleep_threshold - max_effect
+                        if quality_score > best_quality:
+                            best_quality = quality_score
+                            best_window = i
+                    
+                    if best_window is not None:
+                        start, end = sleep_windows[best_window]
+                        st.success(f"**Best Sleep Window**: {format_time_hours_minutes(start)} - {format_time_hours_minutes(end)}")
+                        
+                        # Check for potential issues
+                        start_idx = np.argmin(np.abs(np.array(time_points) - start))
+                        end_idx = np.argmin(np.abs(np.array(time_points) - end))
+                        window_effects = combined_effect[start_idx:end_idx+1]
+                        max_effect = np.max(window_effects) if len(window_effects) > 0 else 0
+                        
+                        if max_effect > sleep_threshold * 0.8:
+                            st.warning("⚠️ **Note**: This window has moderate effect levels. Consider adjusting medication timing.")
+                        
+                        # Check for nearby stimulants
+                        nearby_stims = []
+                        for dose in all_doses:
+                            if dose['type'] == 'stimulant':
+                                dose_time_hours = st.session_state.simulator._minutes_to_decimal_hours(dose['time'])
+                                if start - 6 <= dose_time_hours <= start:
+                                    nearby_stims.append(f"{dose['stimulant_name']} at {format_time_hours_minutes(dose_time_hours)}")
+                        
+                        if nearby_stims:
+                            st.info(f"**Nearby Stimulants**: {', '.join(nearby_stims)}")
+                            st.write("Consider avoiding stimulants 6+ hours before sleep.")
+                    
+                    # Overall sleep quality assessment
+                    total_sleep_time = sum(end - start for start, end in sleep_windows)
+                    if total_sleep_time >= 7:
+                        st.success("✅ **Total Sleep Time**: {:.1f} hours (adequate)")
+                    elif total_sleep_time >= 5:
+                        st.warning("⚠️ **Total Sleep Time**: {:.1f} hours (moderate)")
+                    else:
+                        st.error("❌ **Total Sleep Time**: {:.1f} hours (insufficient)")
+                    
+                    st.write(f"**Sleep Windows Found**: {len(sleep_windows)}")
+                    
+                    # Sleep optimization recommendations
+                    if len(sleep_windows) > 0:
+                        st.subheader("🔧 Sleep Optimization")
+                        
+                        # Find problematic doses that interfere with sleep
+                        problematic_doses = []
+                        for dose in all_doses:
+                            dose_time_hours = st.session_state.simulator._minutes_to_decimal_hours(dose['time'])
+                            
+                            # Check if dose interferes with any sleep window
+                            for start, end in sleep_windows:
+                                # If dose is taken during sleep window or too close to start
+                                if (start <= dose_time_hours <= end) or (0 <= start - dose_time_hours <= 2):
+                                    problematic_doses.append({
+                                        'dose': dose,
+                                        'time': dose_time_hours,
+                                        'issue': 'Taken during sleep window' if start <= dose_time_hours <= end else 'Too close to sleep start'
+                                    })
+                        
+                        if problematic_doses:
+                            st.warning("⚠️ **Doses that may interfere with sleep:**")
+                            for prob in problematic_doses:
+                                dose = prob['dose']
+                                if dose['type'] == 'medication':
+                                    st.write(f"• {dose['dosage']}mg {dose.get('medication_name', 'medication')} at {format_time_hours_minutes(prob['time'])} - {prob['issue']}")
+                                else:
+                                    st.write(f"• {dose['quantity']}x {dose['stimulant_name']} at {format_time_hours_minutes(prob['time'])} - {prob['issue']}")
+                        
+                        # Suggest optimal timing for new doses
+                        st.write("**💡 Tips for better sleep:**")
+                        st.write("• Avoid stimulants 6+ hours before desired sleep time")
+                        st.write("• Take sleep-promoting medications 1-2 hours before sleep")
+                        st.write("• Consider adjusting dose timing to create longer sleep windows")
+                        
+                        # Export sleep schedule
+                        st.subheader("📥 Export Sleep Data")
+                        sleep_schedule = {
+                            'export_time': datetime.now().isoformat(),
+                            'sleep_threshold': sleep_threshold,
+                            'sleep_windows': [
+                                {
+                                    'start': start,
+                                    'end': end,
+                                    'start_formatted': format_time_hours_minutes(start),
+                                    'end_formatted': format_time_hours_minutes(end),
+                                    'duration': end - start
+                                }
+                                for start, end in sleep_windows
+                            ],
+                            'total_sleep_time': sum(end - start for start, end in sleep_windows),
+                            'recommendations': [
+                                'Avoid stimulants 6+ hours before sleep',
+                                'Take sleep-promoting medications 1-2 hours before sleep',
+                                'Consider adjusting dose timing for longer sleep windows'
+                            ]
+                        }
+                        
+                        # Create downloadable JSON
+                        sleep_json = json.dumps(sleep_schedule, indent=2)
+                        st.download_button(
+                            label="📥 Download Sleep Schedule",
+                            data=sleep_json,
+                            file_name=f"sleep_schedule_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json"
+                        )
+                        
             else:
                 st.info("No suitable sleep windows found with current threshold.")
+                st.write("💡 **Tip**: Try lowering the sleep threshold or adjusting medication timing to create better sleep opportunities.")
+                
+                # Show current effect levels at typical sleep times
+                st.subheader("🔍 Current Sleep Readiness")
+                typical_sleep_times = [22, 23, 0, 1, 2, 3, 4, 5, 6]  # 10 PM to 6 AM
+                
+                sleep_readiness = []
+                for hour in typical_sleep_times:
+                    if hour in time_points:
+                        idx = list(time_points).index(hour)
+                        effect = combined_effect[idx]
+                        readiness = max(0, sleep_threshold - effect)
+                        sleep_readiness.append({
+                            "Time": f"{hour:02d}:00",
+                            "Effect Level": f"{effect:.3f}",
+                            "Sleep Readiness": f"{readiness:.3f}",
+                            "Status": "🟢 Good" if readiness > sleep_threshold * 0.5 else "🟡 Moderate" if readiness > 0 else "🔴 Poor"
+                        })
+                
+                if sleep_readiness:
+                    readiness_df = pd.DataFrame(sleep_readiness)
+                    st.dataframe(readiness_df, use_container_width=True, hide_index=True)
         
         else:
             # Check if there are doses but they all failed
@@ -622,14 +1259,95 @@ def adhd_medications_app():
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error importing schedule: {e}")
+        
+        # localStorage Management
+        st.subheader("💾 Input Data Storage")
+        st.info("Your input preferences are automatically saved and will be restored when you return.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Clear Saved Inputs", type="secondary"):
+                clear_local_storage(LOCAL_STORAGE_KEYS['medication_inputs'])
+                clear_local_storage(LOCAL_STORAGE_KEYS['stimulant_inputs'])
+                clear_local_storage(LOCAL_STORAGE_KEYS['painkiller_inputs'])
+                clear_local_storage(LOCAL_STORAGE_KEYS['sleep_settings'])
+                clear_local_storage(LOCAL_STORAGE_KEYS['app_settings'])
+                
+                # Clear from session state
+                for key in ['saved_medication_inputs', 'saved_stimulant_inputs', 'saved_painkiller_inputs', 'saved_sleep_settings', 'saved_app_settings']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                st.success("All saved input data cleared!")
+                st.rerun()
+        
+        with col2:
+            if st.button("📥 Export Input Data", type="secondary"):
+                all_input_data = {
+                    'medication_inputs': st.session_state.get('saved_medication_inputs', {}),
+                    'stimulant_inputs': st.session_state.get('saved_stimulant_inputs', {}),
+                    'painkiller_inputs': st.session_state.get('saved_painkiller_inputs', {}),
+                    'sleep_settings': st.session_state.get('saved_sleep_settings', {}),
+                    'app_settings': st.session_state.get('saved_app_settings', {})
+                }
+                
+                input_json = json.dumps(all_input_data, indent=2)
+                st.download_button(
+                    label="📥 Download Input Data",
+                    data=input_json,
+                    file_name=f"input_preferences_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+        
+        # Import input data
+        st.subheader("📥 Import Input Data")
+        uploaded_input_file = st.file_uploader("Upload Input Preferences", type=['json'], key="input_preferences_uploader")
+        if uploaded_input_file is not None:
+            try:
+                input_data = json.load(uploaded_input_file)
+                
+                # Restore input data to session state
+                if 'medication_inputs' in input_data:
+                    st.session_state.saved_medication_inputs = input_data['medication_inputs']
+                if 'stimulant_inputs' in input_data:
+                    st.session_state.saved_stimulant_inputs = input_data['stimulant_inputs']
+                if 'painkiller_inputs' in input_data:
+                    st.session_state.saved_painkiller_inputs = input_data['painkiller_inputs']
+                if 'sleep_settings' in input_data:
+                    st.session_state.saved_sleep_settings = input_data['sleep_settings']
+                if 'app_settings' in input_data:
+                    st.session_state.saved_app_settings = input_data['app_settings']
+                
+                # Save to localStorage
+                for key, data in input_data.items():
+                    if key in LOCAL_STORAGE_KEYS.values():
+                        save_to_local_storage(data, key)
+                
+                st.success("Input preferences imported successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error importing input preferences: {e}")
 
 def painkillers_app():
     st.title("💊 Painkiller Timeline Simulator")
     st.markdown("Simulate and visualize painkiller effects throughout the day")
     
-    # Initialize session state for painkillers
+    # Show localStorage status
+    if any(key in st.session_state for key in ['saved_medication_inputs', 'saved_stimulant_inputs', 'saved_painkiller_inputs', 'saved_sleep_settings', 'saved_app_settings']):
+        st.success("💾 **Input Data Saved**: Your preferences are automatically saved and will be restored when you return.")
+    
+    # Initialize session state for painkillers with localStorage persistence
     if 'painkiller_doses' not in st.session_state:
-        st.session_state.painkiller_doses = []
+        try:
+            # Try to load from localStorage first
+            saved_doses = load_painkiller_doses()
+            if saved_doses and isinstance(saved_doses, list):
+                st.session_state.painkiller_doses = saved_doses
+            else:
+                st.session_state.painkiller_doses = []
+        except Exception as e:
+            print(f"Error loading painkiller doses: {e}")
+            st.session_state.painkiller_doses = []
     
     # Sidebar for painkiller management
     with st.sidebar:
@@ -645,12 +1363,39 @@ def painkillers_app():
         if not available_painkillers:
             st.error("No painkillers available. Please check that medications.json is properly loaded.")
         else:
+            # Load saved painkiller inputs
+            saved_pk_inputs = st.session_state.get('saved_painkiller_inputs', {})
+            default_pk_time = time(8, 0)
+            default_pk = available_painkillers[0] if available_painkillers else None
+            default_pills = 1
+            
+            if saved_pk_inputs:
+                try:
+                    if 'dose_time' in saved_pk_inputs:
+                        time_str = saved_pk_inputs['dose_time']
+                        hour, minute = map(int, time_str.split(':'))
+                        default_pk_time = time(hour, minute)
+                    if 'painkiller_name' in saved_pk_inputs and saved_pk_inputs['painkiller_name'] in available_painkillers:
+                        default_pk = saved_pk_inputs['painkiller_name']
+                    if 'pill_count' in saved_pk_inputs:
+                        default_pills = int(saved_pk_inputs['pill_count'])
+                except:
+                    pass
+            
             col1, col2 = st.columns(2)
             with col1:
-                dose_time = st.time_input("Dose Time", value=time(8, 0), key="pk_time")
-                painkiller_name = st.selectbox("Painkiller Type", available_painkillers, key="pk_name")
+                dose_time = st.time_input("Dose Time", value=default_pk_time, key="pk_time")
+                painkiller_name = st.selectbox("Painkiller Type", available_painkillers, index=available_painkillers.index(default_pk) if default_pk else 0, key="pk_name")
             with col2:
-                pill_count = st.number_input("Pills", min_value=1, max_value=4, value=1, step=1, key="pk_pills")
+                pill_count = st.number_input("Pills", min_value=1, max_value=4, value=default_pills, step=1, key="pk_pills")
+            
+            # Auto-save painkiller inputs
+            current_pk_inputs = {
+                'dose_time': dose_time.strftime("%H:%M"),
+                'painkiller_name': painkiller_name,
+                'pill_count': pill_count
+            }
+            auto_save_inputs('painkiller', current_pk_inputs)
         
         # Auto-calculate and display dosage based on product and pill count
         if painkiller_name and painkiller_name in available_painkillers:
@@ -731,6 +1476,8 @@ def painkillers_app():
                 pass
             
             st.session_state.painkiller_doses.append(dose_entry)
+            # Save to localStorage for persistence
+            save_painkiller_doses(st.session_state.painkiller_doses)
             pill_text = "pill" if pill_count == 1 else "pills"
             st.success(f"Added {pill_count} {pill_text} of {painkiller_name} ({actual_dosage}mg total) at {time_str}")
             st.rerun()
@@ -759,6 +1506,8 @@ def painkillers_app():
                 with col3:
                     if st.button("🗑️", key=f"del_pk_{dose['id']}"):
                         st.session_state.painkiller_doses.remove(dose)
+                        # Save to localStorage for persistence
+                        save_painkiller_doses(st.session_state.painkiller_doses)
                         st.rerun()
                 
                 # Show curve details in expandable section
@@ -802,10 +1551,12 @@ def painkillers_app():
         
         if st.session_state.painkiller_doses and st.button("🗑️ Clear All Painkillers"):
             st.session_state.painkiller_doses.clear()
+            # Save to localStorage for persistence
+            save_painkiller_doses(st.session_state.painkiller_doses)
             st.rerun()
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
+    # Main content area - Make graph wider
+    col1, col2 = st.columns([4, 1])
     
     with col1:
         # Generate painkiller timeline
@@ -915,7 +1666,11 @@ def painkillers_app():
 
 def generate_painkiller_timeline():
     """Generate timeline for painkiller effects"""
-    time_points = np.arange(0, 24.1, 0.1)  # 24 hours in 0.1 hour intervals
+    # Use dynamic time points from simulator if available, otherwise fallback to 24h
+    if 'simulator' in st.session_state and hasattr(st.session_state.simulator, 'time_points') and len(st.session_state.simulator.time_points) > 0:
+        time_points = st.session_state.simulator.time_points
+    else:
+        time_points = np.arange(0, 24.1, 0.1)  # Fallback to 24 hours in 0.1 hour intervals
     pain_level = np.zeros_like(time_points)
     
     for dose in st.session_state.painkiller_doses:
@@ -1125,13 +1880,35 @@ def create_painkiller_plot(time_points, pain_level):
     # Update layout
     max_relief = max(10.1, pain_level.max() * 1.1) if len(pain_level) > 0 else 10.1
     
-    # Create custom x-axis tick labels in HH:MM format
-    tick_hours = list(range(0, 25, 3))
-    tick_labels = [format_time_hours_minutes(hour) for hour in tick_hours]
+    # Create custom x-axis tick labels that span the actual time range
+    if len(time_points) > 0:
+        start_hour = time_points.min()
+        end_hour = time_points.max()
+        
+        # Create ticks that span the full range with reasonable spacing
+        if end_hour - start_hour <= 24:
+            # For 24h or less, use standard hourly ticks
+            tick_hours = list(range(int(start_hour), int(end_hour) + 1, max(1, int(end_hour - start_hour) // 8)))
+        else:
+            # For longer periods, use 3-4 hour spacing
+            spacing = max(1, int((end_hour - start_hour) // 8))
+            tick_hours = list(range(int(start_hour), int(end_hour) + 1, spacing))
+        
+        # Ensure we have start and end points
+        if start_hour not in tick_hours:
+            tick_hours.insert(0, start_hour)
+        if end_hour not in tick_hours:
+            tick_hours.append(end_hour)
+            
+        tick_labels = [format_time_across_midnight(hour) for hour in tick_hours]
+    else:
+        # Fallback to 24h format
+        tick_hours = list(range(0, 25, 3))
+        tick_labels = [format_time_hours_minutes(hour) for hour in tick_hours]
     
     fig.update_xaxes(
-        title_text="Time (24h)", 
-        range=[0, 24], 
+        title_text="Time (hours)", 
+        range=[time_points.min() if len(time_points) > 0 else 0, time_points.max() if len(time_points) > 0 else 24], 
         tickmode='array',
         tickvals=tick_hours,
         ticktext=tick_labels,
@@ -1140,8 +1917,8 @@ def create_painkiller_plot(time_points, pain_level):
     fig.update_yaxes(title_text="Pain Relief Level (/10)", range=[0, max_relief], row=1, col=1)
     
     fig.update_xaxes(
-        title_text="Time (24h)", 
-        range=[0, 24], 
+        title_text="Time (hours)", 
+        range=[time_points.min() if len(time_points) > 0 else 0, time_points.max() if len(time_points) > 0 else 24], 
         tickmode='array',
         tickvals=tick_hours,
         ticktext=tick_labels,
@@ -1152,7 +1929,7 @@ def create_painkiller_plot(time_points, pain_level):
     # Update hover template
     for trace in fig.data:
         if trace.x is not None and len(trace.x) > 0:
-            hover_x = [format_time_hours_minutes(x) for x in trace.x]
+            hover_x = [format_time_across_midnight(x) for x in trace.x]
             trace.customdata = hover_x
             trace.hovertemplate = (
                 "<b>%{fullData.name}</b><br>" +
@@ -1164,7 +1941,7 @@ def create_painkiller_plot(time_points, pain_level):
     fig.update_layout(
         height=600,
         showlegend=True,
-        title_text="24-Hour Pain Relief Timeline",
+        title_text="Pain Relief Timeline",
         hovermode='x unified'
     )
     
