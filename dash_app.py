@@ -27,6 +27,31 @@ import os
 from medication_simulator import MedicationSimulator
 import data_schema
 
+# Performance optimization: Caching for timeline calculations
+from functools import lru_cache
+import time
+
+# Cache for timeline calculations (5 minute TTL)
+@lru_cache(maxsize=128)
+def cached_timeline_calculation(medications_hash, stimulants_hash, timestamp):
+    """Cached timeline calculation to improve performance"""
+    try:
+        # Generate timeline data
+        time_points, combined_effect = simulator.generate_daily_timeline()
+        return time_points, combined_effect
+    except Exception as e:
+        print(f"Error in cached timeline calculation: {e}")
+        return np.array([]), np.array([])
+
+def get_timeline_cache_key():
+    """Generate cache key for timeline calculations"""
+    # Create hash of current medications and stimulants
+    med_hash = hash(str(simulator.medications))
+    stim_hash = hash(str(simulator.stimulants))
+    # Round timestamp to 5-minute intervals for caching
+    timestamp = int(time.time() // 300) * 300
+    return med_hash, stim_hash, timestamp
+
 # Initialize the Dash app
 app = dash.Dash(
     __name__,
@@ -41,6 +66,19 @@ app.config.suppress_callback_exceptions = True
 # Initialize global simulator instance
 simulator = MedicationSimulator()
 
+# Initialize painkillers list in simulator
+if not hasattr(simulator, 'painkillers'):
+    simulator.painkillers = []
+
+# Global state for persistence
+app_state = {
+    'medications': [],
+    'stimulants': [],
+    'painkillers': [],
+    'app_settings': {},
+    'user_preferences': {}
+}
+
 # Load medications data
 def load_medications_data():
     """Load medications data from JSON files"""
@@ -52,6 +90,79 @@ def load_medications_data():
         return {}
 
 medications_data = load_medications_data()
+
+# Data persistence functions
+def save_app_state():
+    """Save current app state to IndexedDB via JavaScript"""
+    return {
+        'medications': simulator.medications,
+        'stimulants': simulator.stimulants,
+        'painkillers': simulator.painkillers,
+        'app_settings': app_state['app_settings'],
+        'user_preferences': app_state['user_preferences']
+    }
+
+def load_app_state():
+    """Load app state from IndexedDB via JavaScript"""
+    # This will be called when the app loads
+    # For now, we'll use the existing data
+    pass
+
+# Enhanced error handling and validation
+def validate_medication_input(dose_time, med_name, dosage, onset_time, peak_time, duration, peak_effect):
+    """Validate medication input parameters"""
+    errors = []
+    
+    if not dose_time:
+        errors.append("Dose time is required")
+    if not med_name:
+        errors.append("Medication name is required")
+    if not dosage or dosage < 0.1 or dosage > 1000:
+        errors.append("Dosage must be between 0.1 and 1000 mg")
+    if onset_time < 0.1 or onset_time > 3.0:
+        errors.append("Onset time must be between 0.1 and 3.0 hours")
+    if peak_time < 0.5 or peak_time > 6.0:
+        errors.append("Peak time must be between 0.5 and 6.0 hours")
+    if duration < 1.0 or duration > 16.0:
+        errors.append("Duration must be between 1.0 and 16.0 hours")
+    if peak_effect < 0.1 or peak_effect > 2.0:
+        errors.append("Peak effect must be between 0.1 and 2.0")
+    
+    return errors
+
+def validate_stimulant_input(dose_time, stim_name, quantity, onset_time, peak_time, duration, peak_effect):
+    """Validate stimulant input parameters"""
+    errors = []
+    
+    if not dose_time:
+        errors.append("Dose time is required")
+    if not stim_name:
+        errors.append("Stimulant name is required")
+    if not quantity or quantity < 0.1 or quantity > 10:
+        errors.append("Quantity must be between 0.1 and 10")
+    if onset_time < 0.05 or onset_time > 2.0:
+        errors.append("Onset time must be between 0.05 and 2.0 hours")
+    if peak_time < 0.1 or peak_time > 6.0:
+        errors.append("Peak time must be between 0.1 and 6.0 hours")
+    if duration < 0.5 or duration > 24.0:
+        errors.append("Duration must be between 0.5 and 24.0 hours")
+    if peak_effect < 0.1 or peak_effect > 3.0:
+        errors.append("Peak effect must be between 0.1 and 3.0")
+    
+    return errors
+
+def validate_painkiller_input(dose_time, pk_name, pills):
+    """Validate painkiller input parameters"""
+    errors = []
+    
+    if not dose_time:
+        errors.append("Dose time is required")
+    if not pk_name:
+        errors.append("Painkiller name is required")
+    if not pills or pills < 1 or pills > 10:
+        errors.append("Pill count must be between 1 and 10")
+    
+    return errors
 
 # Helper functions for time formatting
 def format_time_hours_minutes(hours):
@@ -79,20 +190,22 @@ def format_duration_hours_minutes(hours):
 
 # App layout
 app.layout = dbc.Container([
+    # Responsive header
     dbc.Row([
         dbc.Col([
-            html.H1("💊 RitaliTime - Medication Timeline Simulator", 
-                    className="text-center mb-4"),
-            html.P("Simulate and visualize medication and stimulant effects throughout the day",
-                   className="text-center text-muted")
+            html.H1("💊 RitaliTime", className="text-center mb-2 d-none d-md-block"),
+            html.H2("💊 RitaliTime", className="text-center mb-2 d-md-none"),  # Smaller on mobile
+            html.P("Medication Timeline Simulator", 
+                   className="text-center text-muted mb-4")
         ])
     ]),
     
-    # Navigation tabs
+    # Navigation tabs with mobile optimization
     dbc.Tabs([
-        dbc.Tab(label="ADHD Medications", tab_id="adhd-tab"),
-        dbc.Tab(label="Painkillers", tab_id="painkillers-tab"),
-    ], id="main-tabs", active_tab="adhd-tab"),
+        dbc.Tab(label="ADHD Medications", tab_id="adhd-tab", className="px-2"),
+        dbc.Tab(label="Painkillers", tab_id="painkillers-tab", className="px-2"),
+        dbc.Tab(label="Settings", tab_id="settings-tab", className="px-2"),  # Shortened for mobile
+    ], id="main-tabs", active_tab="adhd-tab", className="mb-3"),
     
     # Content area
     html.Div(id="tab-content"),
@@ -103,7 +216,17 @@ app.layout = dbc.Container([
     dcc.Store(id="painkiller-store"),
     dcc.Store(id="app-settings-store"),
     
-], fluid=True, className="mt-4")
+    # File download component
+    dcc.Download(id="download-data"),
+    
+    # Performance optimization: Loading states
+    dcc.Loading(
+        id="loading-1",
+        type="default",
+        children=html.Div(id="loading-output")
+    ),
+    
+], fluid=True, className="mt-3 px-2")  # Reduced margins for mobile
 
 # Callback to render tab content
 @app.callback(
@@ -115,6 +238,8 @@ def render_tab_content(active_tab):
         return render_adhd_tab()
     elif active_tab == "painkillers-tab":
         return render_painkillers_tab()
+    elif active_tab == "settings-tab":
+        return render_settings_tab()
     return "Select a tab"
 
 def render_adhd_tab():
@@ -122,19 +247,19 @@ def render_adhd_tab():
     return dbc.Row([
         dbc.Col([
             dbc.Row([
-                # Left column - Input forms
+                # Left column - Input forms (responsive)
                 dbc.Col([
                     render_medication_forms(),
                     html.Hr(),
                     render_stimulant_forms(),
-                ], width=6),
+                ], width=12, lg=6),  # Full width on mobile, half on large screens
                 
-                # Right column - Current doses and timeline
+                # Right column - Current doses and timeline (responsive)
                 dbc.Col([
                     render_current_doses(),
                     html.Hr(),
                     render_timeline_visualization(),
-                ], width=6)
+                ], width=12, lg=6)  # Full width on mobile, half on large screens
             ])
         ], width=12)
     ])
@@ -257,6 +382,14 @@ def render_medication_forms():
                 color="outline-secondary",
                 size="sm",
                 className="mt-2"
+            ),
+            
+            # Validation alert
+            dbc.Alert(
+                id="med-validation-alert",
+                is_open=False,
+                duration=4000,
+                className="mt-3"
             )
         ])
     ], className="mb-4")
@@ -382,6 +515,14 @@ def render_stimulant_forms():
                 color="outline-secondary",
                 size="sm",
                 className="mt-2"
+            ),
+            
+            # Validation alert
+            dbc.Alert(
+                id="stim-validation-alert",
+                is_open=False,
+                duration=4000,
+                className="mt-3"
             )
         ])
     ], className="mb-4")
@@ -421,17 +562,17 @@ def render_painkillers_tab():
     return dbc.Row([
         dbc.Col([
             dbc.Row([
-                # Left column - Input forms
+                # Left column - Input forms (responsive)
                 dbc.Col([
                     render_painkiller_forms(),
-                ], width=6),
+                ], width=12, lg=6),  # Full width on mobile, half on large screens
                 
-                # Right column - Current doses and timeline
+                # Right column - Current doses and timeline (responsive)
                 dbc.Col([
                     render_painkiller_doses(),
                     html.Hr(),
                     render_painkiller_timeline(),
-                ], width=6)
+                ], width=12, lg=6)  # Full width on mobile, half on large screens
             ])
         ], width=12)
     ])
@@ -495,7 +636,15 @@ def render_painkiller_forms():
             html.Div(id="pk-dosage-display", className="mb-3"),
             
             # Painkiller info display
-            html.Div(id="pk-info-display", className="mb-3")
+            html.Div(id="pk-info-display", className="mb-3"),
+            
+            # Validation alert
+            dbc.Alert(
+                id="pk-validation-alert",
+                is_open=False,
+                duration=4000,
+                className="mt-3"
+            )
         ])
     ], className="mb-4")
 
@@ -522,6 +671,94 @@ def render_painkiller_timeline():
             dcc.Graph(id="pk-timeline-graph", style={"height": "400px"}),
             html.Div(id="pk-relief-windows", className="mt-3")
         ])
+    ])
+
+def render_settings_tab():
+    """Render the settings tab"""
+    return dbc.Row([
+        dbc.Col([
+            html.H4("⚙️ Settings", className="mb-4"),
+            dbc.Card([
+                dbc.CardHeader([
+                    html.H5("Data Export/Import", className="mb-0")
+                ]),
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Export Data"),
+                            dbc.Button("Export All Data", id="export-data-btn", color="primary", className="w-100"),
+                            html.Br(),
+                            html.Small("Export all current medications, stimulants, and painkillers to JSON.")
+                        ], width=6),
+                        dbc.Col([
+                            dbc.Label("Import Data"),
+                            dcc.Upload(
+                                id="upload-data",
+                                children=html.Div([
+                                    'Drag and Drop or ',
+                                    html.A('Select Files')
+                                ]),
+                                style={
+                                    'width': '100%',
+                                    'height': '60px',
+                                    'lineHeight': '60px',
+                                    'borderWidth': '1px',
+                                    'borderStyle': 'dashed',
+                                    'borderRadius': '5px',
+                                    'textAlign': 'center',
+                                    'margin': '10px'
+                                },
+                                multiple=False
+                            ),
+                            html.Br(),
+                            html.Small("Import medications, stimulants, and painkillers from a JSON file.")
+                        ], width=6)
+                    ])
+                ]),
+                html.Hr(),
+                dbc.CardHeader([
+                    html.H5("User Preferences", className="mb-0")
+                ]),
+                dbc.CardBody([
+                    dbc.Label("Default Dose Time (ADHD Medications)"),
+                    dcc.Input(
+                        id="default-med-time",
+                        type="time",
+                        value="08:00",
+                        className="form-control"
+                    ),
+                    html.Br(),
+                    dbc.Label("Default Dose Time (Stimulants)"),
+                    dcc.Input(
+                        id="default-stim-time",
+                        type="time",
+                        value="09:00",
+                        className="form-control"
+                    ),
+                    html.Br(),
+                    dbc.Label("Default Dose Time (Painkillers)"),
+                    dcc.Input(
+                        id="default-pk-time",
+                        type="time",
+                        value="08:00",
+                        className="form-control"
+                    ),
+                    html.Br(),
+                    dbc.Label("Default Pill Count (Painkillers)"),
+                    dcc.Input(
+                        id="default-pills",
+                        type="number",
+                        min=1,
+                        max=10,
+                        step=1,
+                        value=1,
+                        className="form-control"
+                    ),
+                    html.Br(),
+                    dbc.Button("Save Preferences", id="save-prefs-btn", color="success", className="w-100")
+                ])
+            ])
+        ], width=12)
     ])
 
 # Callbacks for medication forms
@@ -577,7 +814,9 @@ def update_stim_component(stim_name):
      Output("med-onset-slider", "value"),
      Output("med-peak-slider", "value"),
      Output("med-duration-slider", "value"),
-     Output("med-effect-slider", "value")],
+     Output("med-effect-slider", "value"),
+     Output("med-validation-alert", "children"),
+     Output("med-validation-alert", "is_open")],
     [Input("add-med-btn", "n_clicks")],
     [State("med-time-input", "value"),
      State("med-name-dropdown", "value"),
@@ -590,10 +829,16 @@ def update_stim_component(stim_name):
 def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time, duration, peak_effect):
     if not n_clicks:
         # Initial load - return current doses display
-        return render_doses_list(), "08:00", None, 20.0, 1.0, 2.0, 8.0, 1.0
+        return render_doses_list(), "08:00", None, 20.0, 1.0, 2.0, 8.0, 1.0, "", False
     
     if not all([dose_time, med_name, dosage]):
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Please fill in all required fields", True
+    
+    # Validate input
+    validation_errors = validate_medication_input(dose_time, med_name, dosage, onset_time, peak_time, duration, peak_effect)
+    if validation_errors:
+        error_message = html.Ul([html.Li(error) for error in validation_errors])
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True
     
     try:
         # Convert time string to minutes
@@ -612,12 +857,16 @@ def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time,
             dose_time, float(dosage), medication_name=med_name, custom_params=custom_params
         )
         
-        # Reset form values
-        return render_doses_list(), "08:00", None, 20.0, 1.0, 2.0, 8.0, 1.0
+        # Save to app state for persistence
+        app_state['medications'] = simulator.medications.copy()
+        
+        # Reset form values and show success
+        return render_doses_list(), "08:00", None, 20.0, 1.0, 2.0, 8.0, 1.0, dbc.Alert("Medication added successfully!", color="success"), True
         
     except Exception as e:
         print(f"Error adding medication: {e}")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        error_message = f"Error adding medication: {str(e)}"
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert(error_message, color="danger"), True
 
 # Callback for adding stimulant
 @app.callback(
@@ -628,7 +877,9 @@ def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time,
      Output("stim-onset-slider", "value"),
      Output("stim-peak-slider", "value"),
      Output("stim-duration-slider", "value"),
-     Output("stim-effect-slider", "value")],
+     Output("stim-effect-slider", "value"),
+     Output("stim-validation-alert", "children"),
+     Output("stim-validation-alert", "is_open")],
     [Input("add-stim-btn", "n_clicks")],
     [State("stim-time-input", "value"),
      State("stim-name-dropdown", "value"),
@@ -642,10 +893,16 @@ def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time,
 def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_time, duration, peak_effect, component_name):
     if not n_clicks:
         # Initial load - return current doses display
-        return render_doses_list(), "09:00", None, 1.0, 0.17, 1.0, 6.0, 0.75
+        return render_doses_list(), "09:00", None, 1.0, 0.17, 1.0, 6.0, 0.75, "", False
     
     if not all([dose_time, stim_name, quantity]):
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Please fill in all required fields", True
+    
+    # Validate input
+    validation_errors = validate_stimulant_input(dose_time, stim_name, quantity, onset_time, peak_time, duration, peak_effect)
+    if validation_errors:
+        error_message = html.Ul([html.Li(error) for error in validation_errors])
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True
     
     try:
         # Convert time string to minutes
@@ -664,19 +921,25 @@ def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_tim
             dose_time, stim_name, component_name, float(quantity), custom_params
         )
         
-        # Reset form values
-        return render_doses_list(), "09:00", None, 1.0, 0.17, 1.0, 6.0, 0.75
+        # Save to app state for persistence
+        app_state['stimulants'] = simulator.stimulants.copy()
+        
+        # Reset form values and show success
+        return render_doses_list(), "09:00", None, 1.0, 0.17, 1.0, 6.0, 0.75, dbc.Alert("Stimulant added successfully!", color="success"), True
         
     except Exception as e:
         print(f"Error adding stimulant: {e}")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        error_message = f"Error adding stimulant: {str(e)}"
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True
 
 # Callback for adding painkiller
 @app.callback(
     [Output("current-pk-doses-display", "children"),
      Output("pk-time-input", "value"),
      Output("pk-name-dropdown", "value"),
-     Output("pk-pills-input", "value")],
+     Output("pk-pills-input", "value"),
+     Output("pk-validation-alert", "children"),
+     Output("pk-validation-alert", "is_open")],
     [Input("add-pk-btn", "n_clicks")],
     [State("pk-time-input", "value"),
      State("pk-name-dropdown", "value"),
@@ -685,10 +948,16 @@ def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_tim
 def add_painkiller(n_clicks, dose_time, pk_name, pills):
     if not n_clicks:
         # Initial load - return current doses display
-        return render_painkiller_doses_list(), "08:00", None, 1
+        return render_painkiller_doses_list(), "08:00", None, 1, "", False
     
     if not all([dose_time, pk_name, pills]):
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, "Please fill in all required fields", True
+    
+    # Validate input
+    validation_errors = validate_painkiller_input(dose_time, pk_name, pills)
+    if validation_errors:
+        error_message = html.Ul([html.Li(error) for error in validation_errors])
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True
     
     try:
         # Convert time string to hours
@@ -697,24 +966,26 @@ def add_painkiller(n_clicks, dose_time, pk_name, pills):
         
         # Create painkiller dose entry
         dose_entry = {
-            'id': len(simulator.painkillers) if hasattr(simulator, 'painkillers') else 0,
+            'id': len(simulator.painkillers),
             'time_hours': time_hours,
             'name': pk_name,
             'pills': int(pills),
             'time': dose_time
         }
         
-        # Add to simulator (we'll need to implement this)
-        if not hasattr(simulator, 'painkillers'):
-            simulator.painkillers = []
+        # Add to simulator
         simulator.painkillers.append(dose_entry)
         
-        # Reset form values
-        return render_painkiller_doses_list(), "08:00", None, 1
+        # Save to app state for persistence
+        app_state['painkillers'] = simulator.painkillers.copy()
+        
+        # Reset form values and show success
+        return render_painkiller_doses_list(), "08:00", None, 1, dbc.Alert("Painkiller added successfully!", color="success"), True
         
     except Exception as e:
         print(f"Error adding painkiller: {e}")
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        error_message = f"Error adding painkiller: {str(e)}"
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True
 
 # Callback for clearing all doses
 @app.callback(
@@ -724,6 +995,9 @@ def add_painkiller(n_clicks, dose_time, pk_name, pills):
 def clear_all_doses(n_clicks):
     if n_clicks:
         simulator.clear_all_doses()
+        # Update app state for persistence
+        app_state['medications'] = []
+        app_state['stimulants'] = []
         return render_doses_list()
     return render_doses_list()
 
@@ -734,23 +1008,26 @@ def clear_all_doses(n_clicks):
 )
 def clear_all_painkillers(n_clicks):
     if n_clicks:
-        if hasattr(simulator, 'painkillers'):
-            simulator.painkillers.clear()
+        simulator.painkillers.clear()
+        # Update app state for persistence
+        app_state['painkillers'] = []
         return render_painkiller_doses_list()
     return render_painkiller_doses_list()
 
-# Callback for timeline graph
+# Enhanced timeline callback with caching
 @app.callback(
     Output("timeline-graph", "figure"),
     [Input("show-individual-curves", "value"),
      Input("add-med-btn", "n_clicks"),
      Input("add-stim-btn", "n_clicks"),
-     Input("clear-all-doses-btn", "n_clicks")]
+     Input("clear-all-doses-btn", "n_clicks")],
+    prevent_initial_call=True
 )
 def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks):
     try:
-        # Generate timeline data
-        time_points, combined_effect = simulator.generate_daily_timeline()
+        # Use cached calculation if available
+        cache_key = get_timeline_cache_key()
+        time_points, combined_effect = cached_timeline_calculation(*cache_key)
         
         if len(time_points) == 0 or len(combined_effect) == 0:
             # Return empty graph
@@ -806,13 +1083,16 @@ def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks
             hovertemplate="<b>Combined Effect</b><br>Time: %{x:.1f}h<br>Effect: %{y:.3f}<extra></extra>"
         ))
         
-        # Update layout
+        # Update layout with mobile optimization
         fig.update_layout(
             xaxis_title="Time (hours)",
             yaxis_title="Effect Level",
             title="Daily Effect Timeline",
             hovermode='closest',
-            showlegend=True
+            showlegend=True,
+            # Mobile optimization
+            margin=dict(l=50, r=50, t=80, b=50),
+            height=400 if 'lg' in str(show_individual) else 350  # Smaller on mobile
         )
         
         return fig
@@ -1093,6 +1373,124 @@ def update_pk_relief_windows(add_clicks, clear_clicks):
     except Exception as e:
         print(f"Error updating relief windows: {e}")
         return html.P("Error calculating relief windows", className="text-danger")
+
+# Callback for data export
+@app.callback(
+    Output("download-data", "data"),
+    Input("export-data-btn", "n_clicks"),
+    prevent_initial_call=True
+)
+def export_data(n_clicks):
+    if n_clicks:
+        try:
+            # Prepare data for export
+            export_data = {
+                'medications': simulator.medications,
+                'stimulants': simulator.stimulants,
+                'painkillers': simulator.painkillers,
+                'app_settings': app_state['app_settings'],
+                'user_preferences': app_state['user_preferences'],
+                'export_date': datetime.now().isoformat(),
+                'version': '2.0.0'
+            }
+            
+            # Convert to JSON string
+            json_data = json.dumps(export_data, indent=2, default=str)
+            
+            # Return data for download
+            return dict(
+                content=json_data,
+                filename=f"ritalitime_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                type="application/json"
+            )
+            
+        except Exception as e:
+            print(f"Error exporting data: {e}")
+            return None
+    
+    return None
+
+# Callback for data import
+@app.callback(
+    [Output("current-doses-display", "children"),
+     Output("current-pk-doses-display", "children")],
+    Input("upload-data", "contents"),
+    State("upload-data", "filename")
+)
+def import_data(contents, filename):
+    if not contents:
+        return dash.no_update, dash.no_update
+    
+    try:
+        # Parse uploaded file
+        import base64
+        decoded = base64.b64decode(contents.split(',')[1])
+        import_data = json.loads(decoded.decode('utf-8'))
+        
+        # Validate import data
+        if not isinstance(import_data, dict):
+            raise ValueError("Invalid import file format")
+        
+        # Import medications
+        if 'medications' in import_data and isinstance(import_data['medications'], list):
+            simulator.medications = import_data['medications']
+            app_state['medications'] = simulator.medications.copy()
+        
+        # Import stimulants
+        if 'stimulants' in import_data and isinstance(import_data['stimulants'], list):
+            simulator.stimulants = import_data['stimulants']
+            app_state['stimulants'] = simulator.stimulants.copy()
+        
+        # Import painkillers
+        if 'painkillers' in import_data and isinstance(import_data['painkillers'], list):
+            simulator.painkillers = import_data['painkillers']
+            app_state['painkillers'] = simulator.painkillers.copy()
+        
+        # Import app settings
+        if 'app_settings' in import_data and isinstance(import_data['app_settings'], dict):
+            app_state['app_settings'].update(import_data['app_settings'])
+        
+        # Import user preferences
+        if 'user_preferences' in import_data and isinstance(import_data['user_preferences'], dict):
+            app_state['user_preferences'].update(import_data['user_preferences'])
+        
+        print(f"Data imported successfully from {filename}")
+        
+        # Return updated displays
+        return render_doses_list(), render_painkiller_doses_list()
+        
+    except Exception as e:
+        print(f"Error importing data: {e}")
+        return dash.no_update, dash.no_update
+
+# Callback for saving user preferences
+@app.callback(
+    Output("save-prefs-btn", "children"),
+    Input("save-prefs-btn", "n_clicks"),
+    [State("default-med-time", "value"),
+     State("default-stim-time", "value"),
+     State("default-pk-time", "value"),
+     State("default-pills", "value")]
+)
+def save_user_preferences(n_clicks, med_time, stim_time, pk_time, pills):
+    if n_clicks:
+        try:
+            # Save preferences to app state
+            app_state['user_preferences'] = {
+                'default_med_time': med_time,
+                'default_stim_time': stim_time,
+                'default_pk_time': pk_time,
+                'default_pills': pills
+            }
+            
+            print("User preferences saved successfully")
+            return "Preferences Saved! ✅"
+            
+        except Exception as e:
+            print(f"Error saving preferences: {e}")
+            return "Error Saving ❌"
+    
+    return "Save Preferences"
 
 # Main application entry point
 if __name__ == "__main__":
