@@ -284,8 +284,9 @@ def render_medication_forms():
                     dbc.Label("Dose Time"),
                     dcc.Input(
                         id="med-time-input",
-                        type="time",
+                        type="text",
                         value="08:00",
+                        placeholder="HH:MM",
                         className="form-control"
                     )
                 ], width=6),
@@ -414,8 +415,9 @@ def render_stimulant_forms():
                     dbc.Label("Consumption Time"),
                     dcc.Input(
                         id="stim-time-input",
-                        type="time",
+                        type="text",
                         value="09:00",
+                        placeholder="HH:MM",
                         className="form-control"
                     )
                 ], width=6),
@@ -450,7 +452,19 @@ def render_stimulant_forms():
             ], className="mb-3"),
             
             # Component selection for complex stimulants
-            html.Div(id="stim-component-section", className="mb-3"),
+            html.Div(id="stim-component-section", className="mb-3", style={"display": "none"}),
+            html.Div([
+                dbc.Label("Component"),
+                dcc.Dropdown(
+                    id="stim-component-dropdown",
+                    options=[
+                        {"label": "Caffeine", "value": "caffeine"},
+                        {"label": "Taurine", "value": "taurine"}
+                    ],
+                    value="caffeine",
+                    className="form-select"
+                )
+            ], id="stim-component-dropdown-container", style={"display": "none"}, className="mb-3"),
             
             # Advanced parameters expandable section
             dbc.Collapse([
@@ -597,8 +611,9 @@ def render_painkiller_forms():
                     dbc.Label("Dose Time"),
                     dcc.Input(
                         id="pk-time-input",
-                        type="time",
+                        type="text",
                         value="08:00",
+                        placeholder="HH:MM",
                         className="form-control"
                     )
                 ], width=6),
@@ -723,24 +738,27 @@ def render_settings_tab():
                     dbc.Label("Default Dose Time (ADHD Medications)"),
                     dcc.Input(
                         id="default-med-time",
-                        type="time",
+                        type="text",
                         value="08:00",
+                        placeholder="HH:MM",
                         className="form-control"
                     ),
                     html.Br(),
                     dbc.Label("Default Dose Time (Stimulants)"),
                     dcc.Input(
                         id="default-stim-time",
-                        type="time",
+                        type="text",
                         value="09:00",
+                        placeholder="HH:MM",
                         className="form-control"
                     ),
                     html.Br(),
                     dbc.Label("Default Dose Time (Painkillers)"),
                     dcc.Input(
                         id="default-pk-time",
-                        type="time",
+                        type="text",
                         value="08:00",
+                        placeholder="HH:MM",
                         className="form-control"
                     ),
                     html.Br(),
@@ -784,30 +802,18 @@ def toggle_stim_advanced(n_clicks, is_open):
 
 # Callback for stimulant component selection
 @app.callback(
-    Output("stim-component-section", "children"),
+    [Output("stim-component-section", "children"),
+     Output("stim-component-dropdown-container", "style")],
     Input("stim-name-dropdown", "value")
 )
 def update_stim_component(stim_name):
     if stim_name and stim_name in ['redbull', 'monster']:
-        return dbc.Row([
-            dbc.Col([
-                dbc.Label("Component"),
-                dcc.Dropdown(
-                    id="stim-component-dropdown",
-                    options=[
-                        {"label": "Caffeine", "value": "caffeine"},
-                        {"label": "Taurine", "value": "taurine"}
-                    ],
-                    value="caffeine",
-                    className="form-select"
-                )
-            ], width=12)
-        ])
-    return ""
+        return "", {"display": "block"}
+    return "", {"display": "none"}
 
 # Callback for adding medication
 @app.callback(
-    [Output("current-doses-display", "children"),
+    [Output("current-doses-display", "children", allow_duplicate=True),
      Output("med-time-input", "value"),
      Output("med-name-dropdown", "value"),
      Output("med-dosage-input", "value"),
@@ -824,7 +830,8 @@ def update_stim_component(stim_name):
      State("med-onset-slider", "value"),
      State("med-peak-slider", "value"),
      State("med-duration-slider", "value"),
-     State("med-effect-slider", "value")]
+     State("med-effect-slider", "value")],
+    prevent_initial_call=True
 )
 def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time, duration, peak_effect):
     if not n_clicks:
@@ -870,7 +877,7 @@ def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time,
 
 # Callback for adding stimulant
 @app.callback(
-    [Output("current-doses-display", "children"),
+    [Output("current-doses-display", "children", allow_duplicate=True),
      Output("stim-time-input", "value"),
      Output("stim-name-dropdown", "value"),
      Output("stim-quantity-input", "value"),
@@ -888,7 +895,8 @@ def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time,
      State("stim-peak-slider", "value"),
      State("stim-duration-slider", "value"),
      State("stim-effect-slider", "value"),
-     State("stim-component-dropdown", "value")]
+     State("stim-component-dropdown", "value")],
+    prevent_initial_call=True
 )
 def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_time, duration, peak_effect, component_name):
     if not n_clicks:
@@ -934,7 +942,7 @@ def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_tim
 
 # Callback for adding painkiller
 @app.callback(
-    [Output("current-pk-doses-display", "children"),
+    [Output("current-pk-doses-display", "children", allow_duplicate=True),
      Output("pk-time-input", "value"),
      Output("pk-name-dropdown", "value"),
      Output("pk-pills-input", "value"),
@@ -943,7 +951,8 @@ def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_tim
     [Input("add-pk-btn", "n_clicks")],
     [State("pk-time-input", "value"),
      State("pk-name-dropdown", "value"),
-     State("pk-pills-input", "value")]
+     State("pk-pills-input", "value")],
+    prevent_initial_call=True
 )
 def add_painkiller(n_clicks, dose_time, pk_name, pills):
     if not n_clicks:
@@ -989,8 +998,9 @@ def add_painkiller(n_clicks, dose_time, pk_name, pills):
 
 # Callback for clearing all doses
 @app.callback(
-    Output("current-doses-display", "children"),
-    Input("clear-all-doses-btn", "n_clicks")
+    Output("current-doses-display", "children", allow_duplicate=True),
+    Input("clear-all-doses-btn", "n_clicks"),
+    prevent_initial_call=True
 )
 def clear_all_doses(n_clicks):
     if n_clicks:
@@ -1003,8 +1013,9 @@ def clear_all_doses(n_clicks):
 
 # Callback for clearing all painkillers
 @app.callback(
-    Output("current-pk-doses-display", "children"),
-    Input("clear-all-pk-btn", "n_clicks")
+    Output("current-pk-doses-display", "children", allow_duplicate=True),
+    Input("clear-all-pk-btn", "n_clicks"),
+    prevent_initial_call=True
 )
 def clear_all_painkillers(n_clicks):
     if n_clicks:
@@ -1412,10 +1423,11 @@ def export_data(n_clicks):
 
 # Callback for data import
 @app.callback(
-    [Output("current-doses-display", "children"),
-     Output("current-pk-doses-display", "children")],
+    [Output("current-doses-display", "children", allow_duplicate=True),
+     Output("current-pk-doses-display", "children", allow_duplicate=True)],
     Input("upload-data", "contents"),
-    State("upload-data", "filename")
+    State("upload-data", "filename"),
+    prevent_initial_call=True
 )
 def import_data(contents, filename):
     if not contents:
