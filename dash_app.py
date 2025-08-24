@@ -1498,7 +1498,7 @@ if __name__ == "__main__":
     print(f"Medications loaded: {len(medications_data)} categories")
     
     # Run the app
-    app.run_server(
+    app.run(
         debug=True,
         host="127.0.0.1",
         port=8080
