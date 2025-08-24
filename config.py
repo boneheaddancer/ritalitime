@@ -18,8 +18,7 @@ APP_CONFIG = {
     'port': 8080,
     'external_stylesheets': ['https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css'],
     'external_scripts': [
-        'https://unpkg.com/dexie@4.2.0/dist/dexie.js',
-        'assets/persistence.js'
+        'https://unpkg.com/dexie@4.2.0/dist/dexie.js'
     ]
 }
 

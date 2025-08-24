@@ -34,8 +34,30 @@ class RitaliTimeDB {
             });
 
             console.log('RitaliTimeDB initialized successfully');
+            
+            // Auto-load data when database is ready
+            this.autoLoadData();
         } catch (error) {
             console.error('Failed to initialize database:', error);
+        }
+    }
+
+    // Auto-load data from IndexedDB
+    async autoLoadData() {
+        try {
+            const data = await this.exportData();
+            if (data && Object.keys(data).length > 0) {
+                // Store in localStorage for Dash to access
+                localStorage.setItem('ritalitime_data', JSON.stringify(data));
+                console.log('Data auto-loaded from IndexedDB');
+                
+                // Dispatch custom event to notify Dash
+                window.dispatchEvent(new CustomEvent('ritalitime_data_loaded', { 
+                    detail: data 
+                }));
+            }
+        } catch (error) {
+            console.error('Auto-load failed:', error);
         }
     }
 
@@ -270,7 +292,26 @@ class RitaliTimeDB {
             throw error;
         }
     }
-}
+
+    // Save all current data
+    async saveAllData(data) {
+        try {
+            if (!this.db) await this.init();
+            
+            // Clear existing data first
+            await this.clearAllData();
+            
+            // Import new data
+            await this.importData(data);
+            
+            console.log('All data saved successfully');
+            return true;
+        } catch (error) {
+            console.error('Failed to save all data:', error);
+            throw error;
+        }
+    }
+} // End of RitaliTimeDB class
 
 // Create global instance
 window.ritaliTimeDB = new RitaliTimeDB();
