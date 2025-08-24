@@ -37,8 +37,14 @@ def concentration_curve(dose: float, onset_min: float, t_peak_min: float, durati
     xs, ys = [], []
     for m in range(0, minutes+1, step):
         c = pk_one_compartment(dose, ka, ke, m/60.0)
-        # Hard onset gate so the curve doesn't pretend to act before onset:
-        c = 0.0 if m < onset_min else c
+        # Smooth onset transition instead of hard cutoff
+        if m < onset_min:
+            # Use a smoother sigmoid-like ramp to avoid sharp edges
+            # This creates a more gradual, natural transition
+            ramp_factor = m / onset_min if onset_min > 0 else 1.0
+            # Apply sigmoid-like smoothing: 3x^2 - 2x^3 for smoother transition
+            smooth_ramp = 3 * ramp_factor**2 - 2 * ramp_factor**3
+            c = c * smooth_ramp
         xs.append(m); ys.append(c)
     
     # Debug output

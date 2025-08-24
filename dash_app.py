@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
+import pandas as pd
 import json
 import base64
 from datetime import time, datetime
@@ -60,15 +61,102 @@ app = dash.Dash(
     title="RitaliTime - Medication Timeline Simulator"
 )
 
+# Custom CSS for beautiful checkboxes
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            /* Beautiful Custom Checkboxes */
+            .custom-checkbox .form-check-input {
+                width: 1.5em;
+                height: 1.5em;
+                margin-top: 0.25em;
+                border: 2px solid #dee2e6;
+                border-radius: 0.375rem;
+                transition: all 0.2s ease-in-out;
+                cursor: pointer;
+            }
+            
+            .custom-checkbox .form-check-input:checked {
+                background-color: var(--bs-primary);
+                border-color: var(--bs-primary);
+                box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.25);
+            }
+            
+            .custom-checkbox .form-check-input:focus {
+                border-color: var(--bs-primary);
+                box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.25);
+            }
+            
+            .custom-checkbox .form-check-input:hover:not(:checked) {
+                border-color: var(--bs-primary);
+                transform: scale(1.05);
+            }
+            
+            .custom-checkbox .form-check-label {
+                cursor: pointer;
+                font-weight: 500;
+                color: #495057;
+                transition: color 0.2s ease-in-out;
+            }
+            
+            .custom-checkbox .form-check-label:hover {
+                color: var(--bs-primary);
+            }
+            
+            /* Section styling */
+            .text-primary { color: #0d6efd !important; }
+            .text-success { color: #198754 !important; }
+            .text-warning { color: #ffc107 !important; }
+            
+            /* Card enhancements */
+            .card {
+                border: none;
+                box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+                transition: box-shadow 0.15s ease-in-out;
+            }
+            
+            .card:hover {
+                box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            }
+            
+            .card-header {
+                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                border-bottom: 1px solid #dee2e6;
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 # App configuration
 app.config.suppress_callback_exceptions = True
 
 # Initialize global simulator instance
-simulator = MedicationSimulator()
+simulator = None
 
-# Initialize painkillers list in simulator
-if not hasattr(simulator, 'painkillers'):
-    simulator.painkillers = []
+def get_simulator():
+    """Get or create simulator instance"""
+    global simulator
+    if simulator is None:
+        simulator = MedicationSimulator()
+        # Initialize painkillers list in simulator
+        if not hasattr(simulator, 'painkillers'):
+            simulator.painkillers = []
+    return simulator
 
 # Global state for persistence
 app_state = {
@@ -174,6 +262,21 @@ def format_time_hours_minutes(hours):
     m = total_minutes % 60
     return f"{h:02d}:{m:02d}"
 
+def format_time_across_midnight(hours):
+    """Format decimal hours as HH:MM, handling times across midnight"""
+    if hours < 24:
+        # Same day: use standard HH:MM format
+        total_minutes = int(hours * 60)
+        h = total_minutes // 60
+        m = total_minutes % 60
+        return f"{h:02d}:{m:02d}"
+    else:
+        # Next day: convert back to 0-23 format (e.g., 25:00 becomes 01:00)
+        total_minutes = int(hours * 60)
+        h = (total_minutes // 60) % 24
+        m = total_minutes % 60
+        return f"{h:02d}:{m:02d}"
+
 def format_duration_hours_minutes(hours):
     """Format decimal hours as duration string"""
     if hours < 0:
@@ -216,6 +319,12 @@ app.layout = dbc.Container([
     dcc.Store(id="painkiller-store"),
     dcc.Store(id="app-settings-store"),
     
+    # Hidden div to trigger timeline updates
+    html.Div(id="timeline-trigger", style={"display": "none"}, children="initial"),
+    
+    # Success toast (always present in layout)
+    html.Div(id="med-selection-toast"),
+    
     # File download component
     dcc.Download(id="download-data"),
     
@@ -242,6 +351,175 @@ def render_tab_content(active_tab):
         return render_settings_tab()
     return "Select a tab"
 
+# Initial callback for sleep analysis display and slider initialization (tab selection only)
+@app.callback(
+    [Output("sleep-analysis-display", "children"),
+     Output("sleep-threshold-slider", "value")],
+    Input("main-tabs", "active_tab"),
+    prevent_initial_call=False
+)
+def initialize_sleep_components(active_tab):
+    """Initialize sleep analysis display and slider when ADHD tab is selected"""
+    if active_tab == "adhd-tab":
+        try:
+            sim = get_simulator()
+            sleep_threshold = sim.sleep_threshold
+            
+            # Generate initial sleep analysis
+            time_points, combined_effect = sim.generate_daily_timeline()
+            
+            if len(combined_effect) > 0:
+                sleep_windows = sim.find_sleep_windows(combined_effect)
+                
+                if sleep_windows:
+                    # Create initial sleep analysis display
+                    sleep_info = []
+                    for i, (start, end) in enumerate(sleep_windows):
+                        duration = end - start
+                        start_str = format_time_across_midnight(start)
+                        end_str = format_time_across_midnight(end)
+                        duration_str = format_duration_hours_minutes(duration)
+                        
+                        sleep_info.append({
+                            "Window": f"#{i+1}",
+                            "Start": start_str,
+                            "End": end_str,
+                            "Duration": duration_str
+                        })
+                    
+                    total_sleep_time = sum(end - start for start, end in sleep_windows)
+                    
+                    if total_sleep_time >= 7:
+                        summary_color = "success"
+                        summary_icon = "✅"
+                    elif total_sleep_time >= 5:
+                        summary_color = "warning"
+                        summary_icon = "⚠️"
+                    else:
+                        summary_color = "danger"
+                        summary_icon = "❌"
+                    
+                    sleep_display = [
+                        dbc.Alert([
+                            html.Strong(f"{summary_icon} Total Sleep Time: {total_sleep_time:.1f} hours across {len(sleep_windows)} window(s)"),
+                            html.Br(),
+                            html.Small(f"Sleep threshold: {sleep_threshold:.2f}")
+                        ], color=summary_color, className="mb-3"),
+                        html.Div([
+                            html.H6("Sleep Windows:", className="mb-2"),
+                            dbc.Table.from_dataframe(
+                                pd.DataFrame(sleep_info),
+                                striped=True,
+                                bordered=True,
+                                hover=True,
+                                size="sm"
+                            )
+                        ])
+                    ]
+                else:
+                    sleep_display = [
+                        dbc.Alert("No suitable sleep windows found with current threshold.", color="info"),
+                        html.Small(f"Sleep threshold: {sleep_threshold:.2f}")
+                    ]
+            else:
+                sleep_display = [
+                    html.P("No timeline data available for sleep analysis.", className="text-muted")
+                ]
+            
+            return sleep_display, sleep_threshold
+                
+        except Exception as e:
+            print(f"Error initializing sleep components: {e}")
+            return [
+                html.P("Error initializing sleep analysis.", className="text-danger")
+            ], 0.3
+    
+    return dash.no_update, dash.no_update
+
+# Update callback for sleep analysis when timeline changes
+@app.callback(
+    Output("sleep-analysis-display", "children", allow_duplicate=True),
+    Input("timeline-trigger", "children"),
+    prevent_initial_call=True
+)
+def update_sleep_analysis_on_timeline_change(timeline_trigger):
+    """Update sleep analysis display when timeline changes"""
+    try:
+        # Get current sleep threshold from simulator
+        sim = get_simulator()
+        sleep_threshold = sim.sleep_threshold
+        
+        # Generate sleep analysis
+        time_points, combined_effect = sim.generate_daily_timeline()
+        
+        if len(combined_effect) > 0:
+            # Find sleep windows
+            sleep_windows = sim.find_sleep_windows(combined_effect)
+            
+            if sleep_windows:
+                # Create sleep analysis display
+                sleep_info = []
+                for i, (start, end) in enumerate(sleep_windows):
+                    duration = end - start
+                    start_str = format_time_across_midnight(start)
+                    end_str = format_time_across_midnight(end)
+                    duration_str = format_duration_hours_minutes(duration)
+                    
+                    sleep_info.append({
+                        "Window": f"#{i+1}",
+                        "Start": start_str,
+                        "End": end_str,
+                        "Duration": duration_str
+                    })
+                
+                # Create sleep summary
+                total_sleep_time = sum(end - start for start, end in sleep_windows)
+                sleep_summary = f"**Total Sleep Time**: {total_sleep_time:.1f} hours across {len(sleep_windows)} window(s)"
+                
+                if total_sleep_time >= 7:
+                    summary_color = "success"
+                    summary_icon = "✅"
+                elif total_sleep_time >= 5:
+                    summary_color = "warning"
+                    summary_icon = "⚠️"
+                else:
+                    summary_color = "danger"
+                    summary_icon = "❌"
+                
+                return [
+                    dbc.Alert([
+                        html.Strong(f"{summary_icon} {sleep_summary}"),
+                        html.Br(),
+                        html.Small(f"Sleep threshold: {sleep_threshold:.2f}")
+                    ], color=summary_color, className="mb-3"),
+                    html.Div([
+                        html.H6("Sleep Windows:", className="mb-2"),
+                        html.P(f"Sleep threshold: {sleep_threshold:.2f}"),
+                        dbc.Table.from_dataframe(
+                            pd.DataFrame(sleep_info),
+                            striped=True,
+                            bordered=True,
+                            hover=True,
+                            size="sm"
+                        )
+                    ])
+                ]
+            else:
+                return [
+                    dbc.Alert("No suitable sleep windows found with current threshold.", color="info"),
+                    html.Small(f"Sleep threshold: {sleep_threshold:.2f}")
+                ]
+        else:
+            return [
+                html.P("No timeline data available for sleep analysis.", className="text-muted")
+            ]
+            
+    except Exception as e:
+        print(f"Error updating sleep analysis: {e}")
+        return [
+            html.P("Error updating sleep analysis.", className="text-danger")
+        ]
+
 def render_adhd_tab():
     """Render the ADHD medications tab"""
     return dbc.Row([
@@ -252,6 +530,9 @@ def render_adhd_tab():
                     render_medication_forms(),
                     html.Hr(),
                     render_stimulant_forms(),
+                    html.Hr(),
+                    render_sleep_settings(),
+                    html.Div(id="sleep-analysis-display", className="mt-3"),
                 ], width=12, lg=6),  # Full width on mobile, half on large screens
                 
                 # Right column - Current doses and timeline (responsive)
@@ -268,7 +549,11 @@ def render_medication_forms():
     """Render medication input forms"""
     available_medications = []
     if medications_data.get('stimulants', {}).get('prescription_stimulants'):
-        available_medications = list(medications_data['stimulants']['prescription_stimulants'].keys())
+        med_data = medications_data['stimulants']['prescription_stimulants']
+        available_medications = [
+            {"label": med_data[med].get('display_name', med), "value": med} 
+            for med in med_data.keys()
+        ]
     
     if not available_medications:
         return dbc.Alert("No medications available. Please check that medications.json is properly loaded.", 
@@ -294,8 +579,8 @@ def render_medication_forms():
                     dbc.Label("Medication Type"),
                     dcc.Dropdown(
                         id="med-name-dropdown",
-                        options=[{"label": med, "value": med} for med in available_medications],
-                        value=available_medications[0] if available_medications else None,
+                        options=[],
+                        value=None,
                         className="form-select"
                     )
                 ], width=6)
@@ -399,7 +684,11 @@ def render_stimulant_forms():
     """Render stimulant input forms"""
     available_stimulants = []
     if medications_data.get('stimulants', {}).get('common_stimulants'):
-        available_stimulants = list(medications_data['stimulants']['common_stimulants'].keys())
+        stim_data = medications_data['stimulants']['common_stimulants']
+        available_stimulants = [
+            {"label": stim_data[stim].get('display_name', stim), "value": stim} 
+            for stim in stim_data.keys()
+        ]
     
     if not available_stimulants:
         return dbc.Alert("No stimulants available. Please check that medications.json is properly loaded.", 
@@ -425,8 +714,8 @@ def render_stimulant_forms():
                     dbc.Label("Stimulant"),
                     dcc.Dropdown(
                         id="stim-name-dropdown",
-                        options=[{"label": stim, "value": stim} for stim in available_stimulants],
-                        value=available_stimulants[0] if available_stimulants else None,
+                        options=[],
+                        value=None,
                         className="form-select"
                     )
                 ], width=6)
@@ -595,7 +884,11 @@ def render_painkiller_forms():
     """Render painkiller input forms"""
     available_painkillers = []
     if medications_data.get('painkillers'):
-        available_painkillers = list(medications_data['painkillers'].keys())
+        pk_data = medications_data['painkillers']
+        available_painkillers = [
+            {"label": pk_data[pk].get('display_name', pk), "value": pk} 
+            for pk in pk_data.keys()
+        ]
     
     if not available_painkillers:
         return dbc.Alert("No painkillers available. Please check that medications.json is properly loaded.", 
@@ -621,8 +914,8 @@ def render_painkiller_forms():
                     dbc.Label("Painkiller Type"),
                     dcc.Dropdown(
                         id="pk-name-dropdown",
-                        options=[{"label": pk, "value": pk} for pk in available_painkillers],
-                        value=available_painkillers[0] if available_painkillers else None,
+                        options=[],
+                        value=None,
                         className="form-select"
                     )
                 ], width=6)
@@ -688,11 +981,91 @@ def render_painkiller_timeline():
         ])
     ])
 
+def render_sleep_settings():
+    """Render sleep settings and threshold adjustment"""
+    return dbc.Card([
+        dbc.CardHeader([
+            html.H4("😴 Sleep Settings", className="mb-0")
+        ]),
+        dbc.CardBody([
+            dbc.Label("Sleep Threshold (effect level below which sleep is suitable)"),
+            dcc.Slider(
+                id="sleep-threshold-slider",
+                min=0.1,
+                max=1.0,
+                step=0.05,
+                value=0.3,
+                marks={0.1: "0.1", 0.3: "0.3", 0.5: "0.5", 0.7: "0.7", 1.0: "1.0"},
+                tooltip={"placement": "bottom", "always_visible": True}
+            ),
+            html.Small("Adjust this threshold to see how it affects sleep quality analysis", className="text-muted")
+        ])
+    ], className="mb-4")
+
 def render_settings_tab():
     """Render the settings tab"""
     return dbc.Row([
         dbc.Col([
             html.H4("⚙️ Settings", className="mb-4"),
+            
+            # Medication Selection Card
+            dbc.Card([
+                dbc.CardHeader([
+                    html.H5("💊 Medication Selection", className="mb-0")
+                ]),
+                dbc.CardBody([
+                    html.P("Select which medications you'd like to have available in your dropdowns:", className="text-muted mb-3"),
+                    
+                    # Prescription Stimulants Section
+                    html.H6("Prescription Stimulants", className="text-primary mb-3"),
+                    dbc.Col([
+                        dbc.Checkbox(
+                            id=f"med-check-{med_key}",
+                            label=med_data.get('display_name', med_key),
+                            value=True,
+                            className="custom-checkbox mb-2",
+                            style={
+                                '--bs-primary': '#0d6efd',
+                                '--bs-primary-rgb': '13, 110, 253'
+                            }
+                        ) for med_key, med_data in medications_data.get('stimulants', {}).get('prescription_stimulants', {}).items()
+                    ], width=6, className="mb-4"),
+                    
+                    # Common Stimulants Section
+                    html.H6("Common Stimulants", className="text-success mb-3"),
+                    dbc.Col([
+                        dbc.Checkbox(
+                            id=f"stim-check-{stim_key}",
+                            label=stim_data.get('display_name', stim_key),
+                            value=True,
+                            className="custom-checkbox mb-2",
+                            style={
+                                '--bs-primary': '#198754',
+                                '--bs-primary-rgb': '25, 135, 84'
+                            }
+                        ) for stim_key, stim_data in medications_data.get('stimulants', {}).get('common_stimulants', {}).items()
+                    ], width=6, className="mb-4"),
+                    
+                    # Painkillers Section
+                    html.H6("Painkillers", className="text-warning mb-3"),
+                    dbc.Col([
+                        dbc.Checkbox(
+                            id=f"pk-check-{pk_key}",
+                            label=pk_data.get('display_name', pk_key),
+                            value=True,
+                            className="custom-checkbox mb-2",
+                            style={
+                                '--bs-primary': '#ffc107',
+                                '--bs-primary-rgb': '255, 193, 7'
+                            }
+                        ) for pk_key, pk_data in medications_data.get('painkillers', {}).items()
+                    ], width=6, className="mb-3"),
+                    
+                    dbc.Button("Save Medication Selection", id="save-med-selection-btn", color="primary", className="w-100")
+                ])
+            ], className="mb-4"),
+            
+            # Data Export/Import Card
             dbc.Card([
                 dbc.CardHeader([
                     html.H5("Data Export/Import", className="mb-0")
@@ -779,6 +1152,232 @@ def render_settings_tab():
         ], width=12)
     ])
 
+# Callback for sleep threshold updates
+@app.callback(
+    Output("app-settings-store", "data", allow_duplicate=True),
+    Input("sleep-threshold-slider", "value"),
+    prevent_initial_call=True
+)
+def update_sleep_threshold(sleep_threshold):
+    """Update sleep threshold in app state"""
+    if sleep_threshold is not None:
+        app_state['sleep_threshold'] = sleep_threshold
+        return app_state
+    
+    return no_update
+
+# Callback for saving medication selection and showing toast
+@app.callback(
+    [Output("app-settings-store", "data", allow_duplicate=True),
+     Output("med-selection-toast", "children")],
+    Input("save-med-selection-btn", "n_clicks"),
+    [State(f"med-check-{med_key}", "value") for med_key in medications_data.get('stimulants', {}).get('prescription_stimulants', {}).keys()] +
+    [State(f"stim-check-{stim_key}", "value") for stim_key in medications_data.get('stimulants', {}).get('common_stimulants', {}).keys()] +
+    [State(f"pk-check-{pk_key}", "value") for pk_key in medications_data.get('painkillers', {}).keys()],
+    prevent_initial_call=True
+)
+def save_medication_selection_and_toast(n_clicks, *checkbox_values):
+    """Save medication selection preferences and show success toast"""
+    print(f"Save button clicked! n_clicks: {n_clicks}")
+    print(f"Checkbox values: {checkbox_values}")
+    
+    if not n_clicks or n_clicks is None:
+        print("No clicks detected, returning no_update")
+        return no_update, ""
+    
+    print(f"Button clicked {n_clicks} times!")
+    
+    # Get all medication keys
+    med_keys = list(medications_data.get('stimulants', {}).get('prescription_stimulants', {}).keys())
+    stim_keys = list(medications_data.get('stimulants', {}).get('common_stimulants', {}).keys())
+    pk_keys = list(medications_data.get('painkillers', {}).keys())
+    
+    print(f"Med keys: {med_keys}")
+    print(f"Stim keys: {stim_keys}")
+    print(f"PK keys: {pk_keys}")
+    
+    # Create selection mapping
+    med_selection = {}
+    for i, key in enumerate(med_keys):
+        med_selection[key] = checkbox_values[i] if checkbox_values[i] is not None else True
+    
+    stim_selection = {}
+    for i, key in enumerate(stim_keys):
+        stim_selection[key] = checkbox_values[len(med_keys) + i] if checkbox_values[len(med_keys) + i] is not None else True
+    
+    pk_selection = {}
+    for i, key in enumerate(pk_keys):
+        pk_selection[key] = checkbox_values[len(med_keys) + len(stim_keys) + i] if checkbox_values[len(med_keys) + len(stim_keys) + i] is not None else True
+    
+    print(f"Med selection: {med_selection}")
+    print(f"Stim selection: {stim_selection}")
+    print(f"PK selection: {pk_selection}")
+    
+    # Update app state
+    app_state['app_settings']['medication_selection'] = {
+        'prescription_stimulants': med_selection,
+        'common_stimulants': stim_selection,
+        'painkillers': pk_selection
+    }
+    
+    print(f"Updated app state: {app_state['app_settings']['medication_selection']}")
+    
+    # Create success toast
+    toast = dbc.Toast(
+        "Medication selection saved successfully! Your dropdowns have been updated.",
+        id="med-selection-toast",
+        header="Success",
+        is_open=True,
+        duration=3000,
+        icon="success",
+        style={"position": "fixed", "top": 66, "right": 10, "width": 350}
+    )
+    
+    # Return the updated settings data
+    updated_settings = {
+        'medication_selection': app_state['app_settings']['medication_selection']
+    }
+    
+    print(f"Returning updated settings: {updated_settings}")
+    return updated_settings, toast
+
+# Callback to update medication dropdown options
+@app.callback(
+    Output("med-name-dropdown", "options"),
+    [Input("app-settings-store", "data"),
+     Input("main-tabs", "active_tab")]
+)
+def update_medication_dropdown(settings_data, active_tab):
+    """Update medication dropdown options based on selection"""
+    print(f"Medication dropdown callback triggered - active_tab: {active_tab}")
+    print(f"Settings data: {settings_data}")
+    
+    # Only update when ADHD tab is active
+    if active_tab != "adhd-tab":
+        print(f"Wrong tab ({active_tab}), returning no_update")
+        return no_update
+    
+    if not settings_data or 'app_settings' not in settings_data or 'medication_selection' not in settings_data['app_settings']:
+        print("No settings data or medication selection, showing all medications")
+        # Default: show all medications
+        return [
+            {'label': med_data.get('display_name', med_key), 'value': med_key}
+            for med_key, med_data in medications_data.get('stimulants', {}).get('prescription_stimulants', {}).items()
+        ]
+    
+    selection = settings_data['app_settings']['medication_selection']
+    print(f"Using selection: {selection}")
+    
+    options = []
+    
+    # Add selected prescription stimulants
+    for med_key, is_selected in selection.get('prescription_stimulants', {}).items():
+        if is_selected:
+            med_data = medications_data['stimulants']['prescription_stimulants'].get(med_key, {})
+            options.append({
+                'label': med_data.get('display_name', med_key),
+                'value': med_key
+            })
+    
+    print(f"Returning options: {options}")
+    return options
+
+# Callback to initialize medication selection checkboxes
+@app.callback(
+    [Output(f"med-check-{med_key}", "value") for med_key in medications_data.get('stimulants', {}).get('prescription_stimulants', {}).keys()] +
+    [Output(f"stim-check-{stim_key}", "value") for stim_key in medications_data.get('stimulants', {}).get('common_stimulants', {}).keys()] +
+    [Output(f"pk-check-{pk_key}", "value") for pk_key in medications_data.get('painkillers', {}).keys()],
+    [Input("app-settings-store", "data"),
+     Input("main-tabs", "active_tab")]
+)
+def initialize_medication_selection(settings_data, active_tab):
+    """Initialize medication selection checkboxes with saved values"""
+    # Only run when settings tab is active
+    if active_tab != "settings-tab":
+        return no_update
+    
+    if not settings_data or 'app_settings' not in settings_data or 'medication_selection' not in settings_data['app_settings']:
+        # Default: all checked
+        med_keys = list(medications_data.get('stimulants', {}).get('prescription_stimulants', {}).keys())
+        stim_keys = list(medications_data.get('stimulants', {}).get('common_stimulants', {}).keys())
+        pk_keys = list(medications_data.get('painkillers', {}).keys())
+        return [True] * (len(med_keys) + len(stim_keys) + len(pk_keys))
+    
+    selection = settings_data['app_settings']['medication_selection']
+    
+    # Get values for each category
+    med_values = [selection.get('prescription_stimulants', {}).get(key, True) for key in medications_data.get('stimulants', {}).get('prescription_stimulants', {}).keys()]
+    stim_values = [selection.get('common_stimulants', {}).get(key, True) for key in medications_data.get('stimulants', {}).get('common_stimulants', {}).keys()]
+    pk_values = [selection.get('painkillers', {}).get(key, True) for key in medications_data.get('painkillers', {}).keys()]
+    
+    return med_values + stim_values + pk_values
+
+# Callback to update stimulant dropdown options
+@app.callback(
+    Output("stim-name-dropdown", "options"),
+    [Input("app-settings-store", "data"),
+     Input("main-tabs", "active_tab")]
+)
+def update_stimulant_dropdown(settings_data, active_tab):
+    """Update stimulant dropdown options based on selection"""
+    # Only update when ADHD tab is active
+    if active_tab != "adhd-tab":
+        return no_update
+    
+    if not settings_data or 'app_settings' not in settings_data or 'medication_selection' not in settings_data['app_settings']:
+        # Default: show all stimulants
+        return [
+            {'label': stim_data.get('display_name', stim_key), 'value': stim_key}
+            for stim_key, stim_data in medications_data.get('stimulants', {}).get('common_stimulants', {}).items()
+        ]
+    
+    selection = settings_data['app_settings']['medication_selection']
+    options = []
+    
+    # Add selected common stimulants
+    for stim_key, is_selected in selection.get('common_stimulants', {}).items():
+        if is_selected:
+            stim_data = medications_data['stimulants']['common_stimulants'].get(stim_key, {})
+            options.append({
+                'label': stim_data.get('display_name', stim_key),
+                'value': stim_key
+            })
+    
+    return options
+
+# Callback to update painkiller dropdown options
+@app.callback(
+    Output("pk-name-dropdown", "options"),
+    [Input("app-settings-store", "data"),
+     Input("main-tabs", "active_tab")]
+)
+def update_painkiller_dropdown(settings_data, active_tab):
+    """Update painkiller dropdown options based on selection"""
+    # Only update when painkillers tab is active
+    if active_tab != "painkillers-tab":
+        return no_update
+    
+    if not settings_data or 'app_settings' not in settings_data or 'medication_selection' not in settings_data['app_settings']:
+        # Default: show all painkillers
+        return [
+            {'label': pk_data.get('display_name', pk_key), 'value': pk_key}
+            for pk_key, pk_data in medications_data.get('painkillers', {}).items()
+        ]
+    
+    selection = settings_data['app_settings']['medication_selection']
+    options = []
+    
+    # Add selected painkillers
+    for pk_key, is_selected in selection.get('painkillers', {}).items():
+        if is_selected:
+            pk_data = medications_data['painkillers'].get(pk_key, {})
+            options.append({
+                'label': pk_data.get('display_name', pk_key),
+                'value': pk_key
+            })
+    
+    return options
+
 # Callbacks for medication forms
 @app.callback(
     Output("med-advanced-collapse", "is_open"),
@@ -811,6 +1410,8 @@ def update_stim_component(stim_name):
         return "", {"display": "block"}
     return "", {"display": "none"}
 
+
+
 # Callback for adding medication
 @app.callback(
     [Output("current-doses-display", "children", allow_duplicate=True),
@@ -834,8 +1435,10 @@ def update_stim_component(stim_name):
     prevent_initial_call=True
 )
 def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time, duration, peak_effect):
+    print(f"DEBUG: add_medication called with n_clicks={n_clicks}")
     if not n_clicks:
         # Initial load - return current doses display
+        print("DEBUG: Initial load, returning current state without changes")
         return render_doses_list(), "08:00", None, 20.0, 1.0, 2.0, 8.0, 1.0, "", False
     
     if not all([dose_time, med_name, dosage]):
@@ -860,20 +1463,25 @@ def add_medication(n_clicks, dose_time, med_name, dosage, onset_time, peak_time,
             'peak_effect': peak_effect
         }
         
-        simulator.add_medication(
+        print(f"DEBUG: Adding medication to simulator: {med_name}, {dosage}mg at {dose_time}")
+        sim = get_simulator()
+        sim.add_medication(
             dose_time, float(dosage), medication_name=med_name, custom_params=custom_params
         )
+        print(f"DEBUG: Medication added. Simulator now has {len(sim.medications)} medications")
         
         # Save to app state for persistence
-        app_state['medications'] = simulator.medications.copy()
+        app_state['medications'] = sim.medications.copy()
         
-        # Reset form values and show success
-        return render_doses_list(), "08:00", None, 20.0, 1.0, 2.0, 8.0, 1.0, dbc.Alert("Medication added successfully!", color="success"), True
+        # Don't reset form values - keep them for the next dose
+        return render_doses_list(), dose_time, med_name, dosage, onset_time, peak_time, duration, peak_effect, dbc.Alert("Medication added successfully!", color="success"), True
         
     except Exception as e:
         print(f"Error adding medication: {e}")
         error_message = f"Error adding medication: {str(e)}"
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dbc.Alert(error_message, color="danger"), True
+
+
 
 # Callback for adding stimulant
 @app.callback(
@@ -925,20 +1533,21 @@ def add_stimulant(n_clicks, dose_time, stim_name, quantity, onset_time, peak_tim
             'peak_effect': peak_effect
         }
         
-        simulator.add_stimulant(
+        sim = get_simulator()
+        sim.add_stimulant(
             dose_time, stim_name, component_name, float(quantity), custom_params
         )
         
         # Save to app state for persistence
-        app_state['stimulants'] = simulator.stimulants.copy()
+        app_state['stimulants'] = sim.stimulants.copy()
         
-        # Reset form values and show success
-        return render_doses_list(), "09:00", None, 1.0, 0.17, 1.0, 6.0, 0.75, dbc.Alert("Stimulant added successfully!", color="success"), True
+        # Don't reset form values - keep them for the next dose
+        return render_doses_list(), dose_time, stim_name, quantity, onset_time, peak_time, duration, peak_effect, dbc.Alert("Stimulant added successfully!", color="success"), True
         
     except Exception as e:
         print(f"Error adding stimulant: {e}")
         error_message = f"Error adding stimulant: {str(e)}"
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, error_message, True, dash.no_update
 
 # Callback for adding painkiller
 @app.callback(
@@ -975,7 +1584,7 @@ def add_painkiller(n_clicks, dose_time, pk_name, pills):
         
         # Create painkiller dose entry
         dose_entry = {
-            'id': len(simulator.painkillers),
+            'id': sim.get_next_dose_id(),
             'time_hours': time_hours,
             'name': pk_name,
             'pills': int(pills),
@@ -983,10 +1592,11 @@ def add_painkiller(n_clicks, dose_time, pk_name, pills):
         }
         
         # Add to simulator
-        simulator.painkillers.append(dose_entry)
+        sim = get_simulator()
+        sim.painkillers.append(dose_entry)
         
         # Save to app state for persistence
-        app_state['painkillers'] = simulator.painkillers.copy()
+        app_state['painkillers'] = sim.painkillers.copy()
         
         # Reset form values and show success
         return render_painkiller_doses_list(), "08:00", None, 1, dbc.Alert("Painkiller added successfully!", color="success"), True
@@ -1004,7 +1614,8 @@ def add_painkiller(n_clicks, dose_time, pk_name, pills):
 )
 def clear_all_doses(n_clicks):
     if n_clicks:
-        simulator.clear_all_doses()
+        sim = get_simulator()
+        sim.clear_all_doses()
         # Update app state for persistence
         app_state['medications'] = []
         app_state['stimulants'] = []
@@ -1019,26 +1630,42 @@ def clear_all_doses(n_clicks):
 )
 def clear_all_painkillers(n_clicks):
     if n_clicks:
-        simulator.painkillers.clear()
+        sim = get_simulator()
+        sim.clear_all_painkillers()
         # Update app state for persistence
         app_state['painkillers'] = []
         return render_painkiller_doses_list()
     return render_painkiller_doses_list()
 
-# Enhanced timeline callback with caching
+# Enhanced timeline callback with caching and visual enhancements
 @app.callback(
     Output("timeline-graph", "figure"),
     [Input("show-individual-curves", "value"),
-     Input("add-med-btn", "n_clicks"),
-     Input("add-stim-btn", "n_clicks"),
-     Input("clear-all-doses-btn", "n_clicks")],
-    prevent_initial_call=True
+     Input("timeline-trigger", "children"),
+     Input("sleep-threshold-slider", "value")]
 )
-def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks):
+def update_timeline_graph(show_individual, timeline_trigger, sleep_threshold):
     try:
-        # Use cached calculation if available
-        cache_key = get_timeline_cache_key()
-        time_points, combined_effect = cached_timeline_calculation(*cache_key)
+        # Clear the cache to ensure fresh calculation
+        cached_timeline_calculation.cache_clear()
+        
+        # Generate timeline data directly from simulator
+        sim = get_simulator()
+        print(f"DEBUG: Generating timeline for {len(sim.medications)} medications and {len(sim.stimulants)} stimulants")
+        print(f"DEBUG: Medications: {sim.medications}")
+        print(f"DEBUG: Stimulants: {sim.stimulants}")
+        print(f"DEBUG: Timeline trigger value: {timeline_trigger}")
+        print(f"DEBUG: Timeline generation started at: {datetime.now().timestamp()}")
+        time_points, combined_effect = sim.generate_daily_timeline()
+        print(f"DEBUG: Timeline generated - time_points: {len(time_points)}, combined_effect: {len(combined_effect)}")
+        if len(combined_effect) > 0:
+            print(f"DEBUG: Combined effect range: {np.min(combined_effect):.6f} to {np.max(combined_effect):.6f}")
+            print(f"DEBUG: Non-zero effects: {np.count_nonzero(combined_effect)}")
+        print(f"DEBUG: Timeline generation completed at: {datetime.now().timestamp()}")
+        
+        # Check simulator state after timeline generation
+        sim_after = get_simulator()
+        print(f"DEBUG: Simulator state after timeline: {len(sim_after.medications)} medications, {len(sim_after.stimulants)} stimulants")
         
         if len(time_points) == 0 or len(combined_effect) == 0:
             # Return empty graph
@@ -1061,7 +1688,7 @@ def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks
         
         # Add individual curves if requested
         if show_individual and "show" in show_individual:
-            individual_curves = simulator.get_individual_curves()
+            individual_curves = sim.get_individual_curves()
             
             # Color palette for different doses
             colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F']
@@ -1069,6 +1696,7 @@ def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks
             for i, (label, curve) in enumerate(individual_curves):
                 color = colors[i % len(colors)]
                 
+                # Add filled area under the curve
                 fig.add_trace(go.Scatter(
                     x=time_points,
                     y=curve,
@@ -1079,10 +1707,11 @@ def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks
                     fillcolor=color,
                     opacity=0.3,
                     showlegend=True,
-                    hovertemplate=f"<b>{label}</b><br>Time: %{{x:.1f}}h<br>Effect: %{{y:.3f}}<extra></extra>"
+                    customdata=[format_time_across_midnight(x) for x in time_points],
+                    hovertemplate=f"<b>{label}</b><br>Time: %{{customdata}}<br>Effect: %{{y:.3f}}<extra></extra>"
                 ))
         
-        # Add combined effect curve
+        # Add combined effect curve with enhanced styling
         fig.add_trace(go.Scatter(
             x=time_points,
             y=combined_effect,
@@ -1090,21 +1719,124 @@ def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks
             name='Combined Effect',
             line=dict(color='blue', width=3),
             fill='tonexty',
-            fillcolor='rgba(30, 144, 255, 0.1)',
-            hovertemplate="<b>Combined Effect</b><br>Time: %{x:.1f}h<br>Effect: %{y:.3f}<extra></extra>"
+            fillcolor='rgba(30, 144, 255, 0.1)',  # Light blue fill
+            customdata=[format_time_across_midnight(x) for x in time_points],
+            hovertemplate="<b>Combined Effect</b><br>Time: %{customdata}<br>Effect: %{y:.3f}<extra></extra>"
         ))
         
-        # Update layout with mobile optimization
+        # Add sleep threshold line (get from slider input or simulator)
+        if sleep_threshold is None:
+            sleep_threshold = app_state.get('sleep_threshold', getattr(sim, 'sleep_threshold', 0.3))
+        fig.add_hline(
+            y=sleep_threshold,
+            line_dash="dash",
+            line_color="red",
+            annotation_text=f"Sleep Threshold ({sleep_threshold:.2f})",
+            annotation_position="top right"
+        )
+        
+        # Add sleep quality indicator (inverted effect level for sleep)
+        sleep_quality = np.maximum(0, sleep_threshold - combined_effect)
+        fig.add_trace(go.Scatter(
+            x=time_points,
+            y=sleep_quality,
+            mode='lines',
+            name='Sleep Quality',
+            line=dict(color='blue', width=2, dash='dot'),
+            yaxis='y2',
+            customdata=[format_time_across_midnight(x) for x in time_points],
+            hovertemplate="<b>Sleep Quality</b><br>Time: %{customdata}<br>Quality: %{y:.3f}<extra></extra>"
+        ))
+        
+        # Add vertical rules for key time points
+        all_doses = sim.get_all_doses()
+        for dose in all_doses:
+            dose_time_hours = sim._minutes_to_decimal_hours(dose['time'])
+            
+            # Calculate Tmax (peak time)
+            if dose['type'] == 'medication':
+                tmax = dose_time_hours + dose.get('peak_time', 2.0)
+            else:
+                tmax = dose_time_hours + dose.get('peak_time', 1.0)
+            
+            # Add Tmax vertical line
+            fig.add_vline(
+                x=tmax,
+                line_dash="dot",
+                line_color="orange",
+                annotation_text=f"Tmax: {format_time_across_midnight(tmax)}",
+                annotation_position="top"
+            )
+            
+            # Add dose time vertical line
+            fig.add_vline(
+                x=dose_time_hours,
+                line_dash="solid",
+                line_color="green",
+                annotation_text=f"Dose: {format_time_across_midnight(dose_time_hours)}",
+                annotation_position="bottom"
+            )
+        
+        # Update layout with enhanced features
         fig.update_layout(
+            title="Medication & Stimulant Effect Timeline",
             xaxis_title="Time (hours)",
             yaxis_title="Effect Level",
-            title="Daily Effect Timeline",
-            hovermode='closest',
-            showlegend=True,
+            hovermode='x unified',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            yaxis2=dict(
+                title="Sleep Quality",
+                overlaying="y",
+                side="right",
+                range=[0, sleep_threshold],
+                tickformat=".2f"
+            ),
             # Mobile optimization
             margin=dict(l=50, r=50, t=80, b=50),
-            height=400 if 'lg' in str(show_individual) else 350  # Smaller on mobile
+            height=500  # Increased height for better visibility
         )
+        
+        # Update x-axis to show dynamic time labels
+        if len(time_points) > 0:
+            start_hour = time_points.min()
+            end_hour = time_points.max()
+            
+            # Create ticks that span the full range
+            if end_hour - start_hour <= 24:
+                # For 24h or less, use 2-hour spacing
+                tick_hours = list(range(int(start_hour), int(end_hour) + 1, 2))
+            else:
+                # For longer periods, use 3-4 hour spacing
+                spacing = max(2, int((end_hour - start_hour) // 8))
+                tick_hours = list(range(int(start_hour), int(end_hour) + 1, spacing))
+            
+            # Ensure we have start and end points
+            if start_hour not in tick_hours:
+                tick_hours.insert(0, start_hour)
+            if end_hour not in tick_hours:
+                tick_hours.append(end_hour)
+                
+            tick_labels = [format_time_across_midnight(hour) for hour in tick_hours]
+            
+            fig.update_xaxes(
+                tickmode='array',
+                tickvals=tick_hours,
+                ticktext=tick_labels,
+                range=[start_hour, end_hour]
+            )
+        else:
+            # Fallback to 24h format
+            fig.update_xaxes(
+                tickmode='array',
+                tickvals=list(range(0, 25, 2)),
+                ticktext=[format_time_across_midnight(h) for h in range(0, 25, 2)]
+            )
         
         return fig
         
@@ -1129,22 +1861,30 @@ def update_timeline_graph(show_individual, med_clicks, stim_clicks, clear_clicks
 def render_doses_list():
     """Render the current doses list"""
     try:
-        all_doses = simulator.get_all_doses()
+        sim = get_simulator()
+        all_doses = sim.get_all_doses()
         if not all_doses:
             return html.P("No doses added yet. Add some medications or stimulants above!", className="text-muted")
         
         dose_cards = []
         for dose in all_doses:
+            # Get the pretty name for the medication/stimulant
+            display_name = dose.get('medication_name', dose.get('stimulant_name', 'Unknown'))
+            if dose['type'] == 'medication' and medications_data.get('stimulants', {}).get('prescription_stimulants', {}).get(display_name):
+                display_name = medications_data['stimulants']['prescription_stimulants'][display_name].get('display_name', display_name)
+            elif dose['type'] == 'stimulant' and medications_data.get('stimulants', {}).get('common_stimulants', {}).get(display_name):
+                display_name = medications_data['stimulants']['common_stimulants'][display_name].get('display_name', display_name)
+            
             dose_card = dbc.Card([
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            html.Strong(f"{'💊' if dose['type'] == 'medication' else '☕'} {dose.get('medication_name', dose.get('stimulant_name', 'Unknown'))}"),
+                            html.Strong(f"{'💊' if dose['type'] == 'medication' else '☕'} {display_name}"),
                             html.Br(),
                             html.Small(f"{dose.get('dosage', dose.get('quantity', 'Unknown'))} {'mg' if dose['type'] == 'medication' else 'units'} at {dose.get('time', 'Unknown time')}")
                         ], width=8),
                         dbc.Col([
-                            dbc.Button("❌", id={"type": "remove-dose", "index": dose['id']}, 
+                            dbc.Button("Delete", id={"type": "remove-dose", "index": dose['id']}, 
                                      color="danger", size="sm", className="w-100")
                         ], width=4)
                     ])
@@ -1161,21 +1901,27 @@ def render_doses_list():
 def render_painkiller_doses_list():
     """Render the current painkiller doses list"""
     try:
-        if not hasattr(simulator, 'painkillers') or not simulator.painkillers:
+        sim = get_simulator()
+        if not hasattr(sim, 'painkillers') or not sim.painkillers:
             return html.P("No painkillers added yet. Add some above!", className="text-muted")
         
         dose_cards = []
-        for dose in simulator.painkillers:
+        for dose in sim.painkillers:
+            # Get the pretty name for the painkiller
+            display_name = dose['name']
+            if medications_data.get('painkillers', {}).get(display_name):
+                display_name = medications_data['painkillers'][display_name].get('display_name', display_name)
+            
             dose_card = dbc.Card([
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            html.Strong(f"💊 {dose['name']}"),
+                            html.Strong(f"💊 {display_name}"),
                             html.Br(),
                             html.Small(f"{dose.get('pills', 1)} pill(s) at {dose.get('time', 'Unknown time')}")
                         ], width=8),
                         dbc.Col([
-                            dbc.Button("❌", id={"type": "remove-pk-dose", "index": dose['id']}, 
+                            dbc.Button("Delete", id={"type": "remove-pk-dose", "index": dose['id']}, 
                                      color="danger", size="sm", className="w-100")
                         ], width=4)
                     ])
@@ -1210,7 +1956,7 @@ def update_pk_dosage(pk_name, pills):
                     html.Strong(f"Total Dosage: {total_dosage}mg"),
                     html.Br(),
                     html.Small(f"({base_dosage}mg per pill)")
-                ], color="info", size="sm")
+                ], color="info")
     except Exception as e:
         print(f"Error calculating dosage: {e}")
     
@@ -1237,8 +1983,8 @@ def update_pk_info(pk_name):
             return dbc.Alert([
                 html.Strong(f"{pk_name}:"),
                 html.Br(),
-                html.Small(f"Onset {format_time_hours_minutes(onset_hours)}, Peak at {format_time_hours_minutes(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
-            ], color="info", size="sm")
+                html.Small(f"Onset {format_time_across_midnight(onset_hours)}, Peak at {format_time_across_midnight(peak_time_hours)}, Peak duration {format_duration_hours_minutes(peak_duration_hours)}, Total {format_duration_hours_minutes(duration_hours)}")
+            ], color="info")
     except Exception as e:
         print(f"Error loading painkiller info: {e}")
     
@@ -1252,7 +1998,8 @@ def update_pk_info(pk_name):
 )
 def update_pk_timeline_graph(add_clicks, clear_clicks):
     try:
-        if not hasattr(simulator, 'painkillers') or not simulator.painkillers:
+        sim = get_simulator()
+        if not hasattr(sim, 'painkillers') or not sim.painkillers:
             # Return empty graph
             fig = go.Figure()
             fig.add_annotation(
@@ -1274,7 +2021,7 @@ def update_pk_timeline_graph(add_clicks, clear_clicks):
         pain_level = np.zeros_like(time_points)
         
         # Simple pain level calculation (placeholder)
-        for dose in simulator.painkillers:
+        for dose in sim.painkillers:
             dose_time = dose['time_hours']
             for i, t in enumerate(time_points):
                 if t >= dose_time and t < dose_time + 8:  # 8 hour effect
@@ -1302,7 +2049,8 @@ def update_pk_timeline_graph(add_clicks, clear_clicks):
             line=dict(color='#e74c3c', width=3),
             fill='tonexty',
             fillcolor='rgba(231, 76, 60, 0.2)',
-            hovertemplate="<b>Pain Relief</b><br>Time: %{x:.1f}h<br>Level: %{y:.1f}/10<extra></extra>"
+            customdata=[format_time_across_midnight(x) for x in time_points],
+            hovertemplate="<b>Pain Relief</b><br>Time: %{customdata}<br>Level: %{y:.1f}/10<extra></extra>"
         ))
         
         # Update layout
@@ -1334,6 +2082,63 @@ def update_pk_timeline_graph(add_clicks, clear_clicks):
         )
         return fig
 
+
+
+
+
+
+
+
+
+
+
+# Unified callback for timeline trigger updates
+@app.callback(
+    Output("timeline-trigger", "children"),
+    [Input("sleep-threshold-slider", "value"),
+     Input("add-med-btn", "n_clicks"),
+     Input("add-stim-btn", "n_clicks"),
+     Input("clear-all-doses-btn", "n_clicks")],
+    prevent_initial_call=True
+)
+def unified_timeline_trigger(sleep_threshold, med_clicks, stim_clicks, clear_clicks):
+    """Unified callback to handle all timeline trigger updates"""
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        return dash.no_update
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Handle sleep threshold changes
+    if trigger_id == "sleep-threshold-slider":
+        if sleep_threshold is not None:
+            try:
+                sim = get_simulator()
+                sim.sleep_threshold = sleep_threshold
+                app_state['sleep_threshold'] = sleep_threshold
+                print(f"Updated simulator sleep threshold to: {sleep_threshold}")
+            except Exception as e:
+                print(f"Error updating simulator sleep threshold: {e}")
+            
+            return f"sleep-threshold-update-{datetime.now().timestamp()}"
+    
+    # Handle medication addition
+    elif trigger_id == "add-med-btn" and med_clicks:
+        return f"med-{datetime.now().timestamp()}"
+    
+    # Handle stimulant addition
+    elif trigger_id == "add-stim-btn" and stim_clicks:
+        return f"stim-{datetime.now().timestamp()}"
+    
+    # Handle clear all doses
+    elif trigger_id == "clear-all-doses-btn" and clear_clicks:
+        return f"clear-{datetime.now().timestamp()}"
+    
+    return dash.no_update
+
+
+
 # Callback for pain relief windows
 @app.callback(
     Output("pk-relief-windows", "children"),
@@ -1342,12 +2147,13 @@ def update_pk_timeline_graph(add_clicks, clear_clicks):
 )
 def update_pk_relief_windows(add_clicks, clear_clicks):
     try:
-        if not hasattr(simulator, 'painkillers') or not simulator.painkillers:
+        sim = get_simulator()
+        if not hasattr(sim, 'painkillers') or not sim.painkillers:
             return html.P("No pain relief windows found", className="text-muted")
         
         # Simple relief window calculation (placeholder)
         relief_windows = []
-        for dose in simulator.painkillers:
+        for dose in sim.painkillers:
             start_time = dose['time_hours']
             end_time = start_time + 8  # 8 hour effect
             relief_windows.append({
@@ -1362,8 +2168,8 @@ def update_pk_relief_windows(add_clicks, clear_clicks):
         # Display relief windows
         window_cards = []
         for i, window in enumerate(relief_windows):
-            start_str = format_time_hours_minutes(window['start'])
-            end_str = format_time_hours_minutes(window['end'])
+            start_str = format_time_across_midnight(window['start'])
+            end_str = format_time_across_midnight(window['end'])
             duration = window['end'] - window['start']
             duration_str = format_duration_hours_minutes(duration)
             
@@ -1503,6 +2309,130 @@ def save_user_preferences(n_clicks, med_time, stim_time, pk_time, pills):
             return "Error Saving ❌"
     
     return "Save Preferences"
+
+# Callback for removing doses
+# TEMPORARILY DISABLED - remove dose callback
+# @app.callback(
+#     Output("current-doses-display", "children", allow_duplicate=True),
+#     [Input({"type": "remove-dose", "index": ALL}, "n_clicks")],
+#     prevent_initial_call=True
+# )
+# def remove_dose_callback(remove_clicks):
+#     """Handle dose removal for medications/stimulants"""
+#     ctx = callback_context
+#     
+#     print(f"DEBUG: remove_dose_callback called with remove_clicks: {remove_clicks}")
+#     print(f"DEBUG: callback context triggered: {ctx.triggered}")
+#     
+#     if not ctx.triggered:
+#         print("DEBUG: No trigger, returning no_update")
+#         return dash.no_update
+#     
+#     try:
+#         # Get the button that was clicked
+#         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+#         button_data = json.loads(button_id)
+#         print(f"DEBUG: Button data: {button_data}")
+#         
+#         if button_data['type'] == 'remove-dose':
+#             # Remove medication/stimulant dose
+#             dose_id = button_data['index']
+#             
+#             # Check if this is a real button click (n_clicks > 0)
+#             if not remove_clicks or all(click is None for click in remove_clicks):
+#                 print(f"DEBUG: Ignoring automatic trigger for dose ID: {dose_id}")
+#                 return dash.no_update
+#             
+#             sim = get_simulator()
+#             print(f"DEBUG: About to remove dose with ID: {dose_id}")
+#             sim.remove_dose(dose_id)
+#             print(f"Removed dose with ID: {dose_id}")
+#             
+#             # Return updated display
+#             return render_doses_list()
+#         
+#     except Exception as e:
+#         print(f"Error removing dose: {e}")
+#     
+#     return dash.no_update
+
+# Callback for removing doses (medications and stimulants)
+@app.callback(
+    Output("current-doses-display", "children", allow_duplicate=True),
+    [Input({"type": "remove-dose", "index": ALL}, "n_clicks")],
+    prevent_initial_call=True
+)
+def remove_dose_callback(remove_clicks):
+    """Handle dose removal for medications/stimulants"""
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        return dash.no_update
+    
+    try:
+        # Get the button that was clicked
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        button_data = json.loads(button_id)
+        
+        if button_data['type'] == 'remove-dose':
+            dose_id = button_data['index']
+            
+            # Check if this is a real button click (n_clicks > 0)
+            if not remove_clicks or all(click is None for click in remove_clicks):
+                return dash.no_update
+            
+            sim = get_simulator()
+            sim.remove_dose(dose_id)
+            print(f"Removed dose with ID: {dose_id}")
+            
+            # Update app state
+            app_state['medications'] = sim.medications.copy()
+            app_state['stimulants'] = sim.stimulants.copy()
+            
+            # Return updated display
+            return render_doses_list()
+        
+    except Exception as e:
+        print(f"Error removing dose: {e}")
+    
+    return dash.no_update
+
+# Callback for removing painkiller doses
+@app.callback(
+    Output("current-pk-doses-display", "children", allow_duplicate=True),
+    [Input({"type": "remove-pk-dose", "index": ALL}, "n_clicks")],
+    prevent_initial_call=True
+)
+def remove_painkiller_dose_callback(remove_clicks):
+    """Handle dose removal for painkillers"""
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        return dash.no_update
+    
+    try:
+        # Get the button that was clicked
+        button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        button_data = json.loads(button_id)
+        
+        if button_data['type'] == 'remove-pk-dose':
+            # Remove painkiller dose
+            dose_id = button_data['index']
+            sim = get_simulator()
+            if hasattr(sim, 'painkillers') and sim.painkillers:
+                sim.painkillers = [d for d in sim.painkillers if d['id'] != dose_id]
+                print(f"Removed painkiller dose with ID: {dose_id}")
+                
+                # Update app state
+                app_state['painkillers'] = sim.painkillers.copy()
+                
+                # Return updated display
+                return render_painkiller_doses_list()
+        
+    except Exception as e:
+        print(f"Error removing dose: {e}")
+    
+    return dash.no_update
 
 # Main application entry point
 if __name__ == "__main__":

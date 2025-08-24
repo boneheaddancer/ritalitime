@@ -3,6 +3,7 @@
     "common_stimulants": {
       "coffee": {
         "category": "stimulant",
+        "display_name": "Coffee",
         "default_dose_unit": "cup",
         "onset_min": 10,
         "t_peak_min": 60,
@@ -13,6 +14,7 @@
       },
       "redbull": {
         "category": "stimulant",
+        "display_name": "Red Bull Energy Drink",
         "default_dose_unit": "can",
         "caffeine": {
           "onset_min": 10,
@@ -33,6 +35,7 @@
       },
       "monster": {
         "category": "stimulant",
+        "display_name": "Monster Energy Drink",
         "default_dose_unit": "can",
         "caffeine": {
           "onset_min": 10,
@@ -55,6 +58,7 @@
     "prescription_stimulants": {
       "ritalin_IR": {
         "category": "stimulant",
+        "display_name": "Ritalin IR (Methylphenidate)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 20,
         "onset_min": 25,
@@ -66,6 +70,7 @@
       },
       "ritalin_LA": {
         "category": "stimulant",
+        "display_name": "Ritalin LA (Long Acting)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 20,
         "onset_min": 60,
@@ -77,6 +82,7 @@
       },
       "concerta": {
         "category": "stimulant",
+        "display_name": "Concerta (Methylphenidate XR)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 36,
         "onset_min": 90,
@@ -88,6 +94,7 @@
       },
       "adderall_IR": {
         "category": "stimulant",
+        "display_name": "Adderall IR (Amphetamine)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 30,
         "onset_min": 30,
@@ -99,6 +106,7 @@
       },
       "adderall_XR": {
         "category": "stimulant",
+        "display_name": "Adderall XR (Extended Release)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 30,
         "onset_min": 60,
@@ -110,6 +118,7 @@
       },
       "vyvanse": {
         "category": "stimulant",
+        "display_name": "Vyvanse (Lisdexamfetamine)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 30,
         "onset_min": 90,
@@ -121,6 +130,7 @@
       },
       "elvanse": {
         "category": "stimulant",
+        "display_name": "Elvanse (Lisdexamfetamine)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 20,
         "onset_min": 30,
@@ -132,6 +142,7 @@
       },
       "dexedrine_IR": {
         "category": "stimulant",
+        "display_name": "Dexedrine IR (Dextroamphetamine)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 20,
         "onset_min": 30,
@@ -143,6 +154,7 @@
       },
       "dexedrine_ER": {
         "category": "stimulant",
+        "display_name": "Dexedrine ER (Extended Release)",
         "default_dose_unit": "mg",
         "standard_dose_mg": 20,
         "onset_min": 60,
@@ -157,6 +169,7 @@
   "painkillers": {
     "paracetamol_500mg": {
       "category": "painkiller",
+      "display_name": "Paracetamol, 500mg",
       "default_dose_unit": "mg",
       "standard_dose_mg": 500,
       "onset_min": 20,
@@ -168,6 +181,7 @@
     },
     "ibuprofen_400mg": {
       "category": "painkiller",
+      "display_name": "Ibuprofen, 400mg",
       "default_dose_unit": "mg",
       "standard_dose_mg": 400,
       "onset_min": 30,
@@ -179,6 +193,7 @@
     },
     "panodil_665mg_mr": {
       "category": "painkiller",
+      "display_name": "Panodil, 665mg (Modified Release)",
       "default_dose_unit": "mg",
       "standard_dose_mg": 665,
       "onset_min": 45,

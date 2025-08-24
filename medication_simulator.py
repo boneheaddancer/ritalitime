@@ -5,7 +5,7 @@ from typing import List, Dict, Tuple, Optional
 import json
 from pk_models import concentration_curve
 from saturation import combine_and_cap
-import streamlit as st
+# import streamlit as st  # Not needed for Dash app
 
 # Test if concentration_curve is available
 print(f"DEBUG: concentration_curve imported successfully: {concentration_curve}")
@@ -24,6 +24,8 @@ class MedicationSimulator:
         self.hill_coefficient = 1.5  # Hill coefficient for saturation curve
         # Track failed doses from last timeline generation
         self.last_failed_doses = []
+        # Unique ID counter for all doses
+        self._next_dose_id = 0
     
     def _calculate_dynamic_window(self) -> Tuple[float, float]:
         """Calculate dynamic time window based on medication timing and effects"""
@@ -418,8 +420,11 @@ class MedicationSimulator:
             'peak_duration_min': int(peak_duration),
             'wear_off_min': int(wear_off_duration),
             'type': 'medication',
-            'id': len(self.medications) + len(self.stimulants)
+            'id': self._next_dose_id
         }
+        
+        # Increment the unique ID counter
+        self._next_dose_id += 1
         
         self.medications.append(medication)
         self._update_time_points()
@@ -485,11 +490,20 @@ class MedicationSimulator:
             'peak_duration_min': stimulant_data['peak_duration_min'],
             'wear_off_min': stimulant_data['wear_off_min'],
             'type': 'stimulant',
-            'id': len(self.medications) + len(self.stimulants)
+            'id': self._next_dose_id
         }
+        
+        # Increment the unique ID counter
+        self._next_dose_id += 1
         
         self.stimulants.append(stimulant)
         self._update_time_points()
+    
+    def get_next_dose_id(self) -> int:
+        """Get the next unique dose ID and increment the counter"""
+        current_id = self._next_dose_id
+        self._next_dose_id += 1
+        return current_id
     
     def _get_stimulant_data(self, stimulant_name: str, component_name: str = None) -> Optional[Dict]:
         """Get stimulant data from the unified medications.json file"""
@@ -562,17 +576,28 @@ class MedicationSimulator:
         """Clear all medications and stimulants"""
         self.medications = []
         self.stimulants = []
+        # Reset the ID counter when clearing all doses
+        self._next_dose_id = 0
+    
+    def clear_all_painkillers(self):
+        """Clear all painkillers"""
+        if hasattr(self, 'painkillers'):
+            self.painkillers = []
+        # Note: We don't reset the ID counter here as it's shared with medications/stimulants
     
     def remove_dose(self, dose_id: int):
         """Remove a dose by ID"""
+        import traceback
+        print(f"DEBUG: remove_dose called with dose_id: {dose_id}")
+        print(f"DEBUG: Stack trace:")
+        traceback.print_stack()
+        
         # Check medications first
         self.medications = [med for med in self.medications if med['id'] != dose_id]
         # Check stimulants
         self.stimulants = [stim for stim in self.stimulants if stim['id'] != dose_id]
-        # Reassign IDs
-        all_doses = self.get_all_doses()
-        for i, dose in enumerate(all_doses):
-            dose['id'] = i
+        # Note: We don't reassign IDs to maintain consistency with the timeline generation
+        # The ID counter will continue to increment for new doses
     
     def find_sleep_windows(self, effect_level: np.ndarray, threshold: float = None) -> List[Tuple[float, float]]:
         """Find time windows suitable for sleep (effect below threshold)"""
@@ -642,7 +667,12 @@ class MedicationSimulator:
         self.stimulants = data.get('stimulants', [])
         self.sleep_threshold = data.get('sleep_threshold', 0.3)
         
-        # Reassign IDs
-        all_doses = self.get_all_doses()
-        for i, dose in enumerate(all_doses):
-            dose['id'] = i
+        # Update the ID counter to be higher than any existing ID
+        if self.medications or self.stimulants:
+            max_id = max(
+                max((med.get('id', 0) for med in self.medications), default=0),
+                max((stim.get('id', 0) for stim in self.stimulants), default=0)
+            )
+            self._next_dose_id = max_id + 1
+        else:
+            self._next_dose_id = 0
