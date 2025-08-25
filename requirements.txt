@@ -1,15 +1,6 @@
-# Core dependencies
-plotly>=6.3.0
-pandas>=2.3.0
-numpy>=2.0.0
-
-# Dash framework
-dash>=3.2.0
-dash-bootstrap-components>=2.0.4
-dash-extensions>=2.0.4
-
-# Flask (required by Dash)
-Flask>=3.1.2
-
-# Development dependencies
-# streamlit>=1.48.0  # Removed - migrating to Dash
+dash==2.14.2
+dash-bootstrap-components==1.5.0
+plotly==5.17.0
+numpy==1.24.3
+pandas==2.0.3
+flask==3.0.0

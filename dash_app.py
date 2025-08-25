@@ -2081,34 +2081,61 @@ def update_painkiller_components(add_clicks, clear_clicks, remove_clicks, pk_nam
             
             pain_level = np.zeros_like(time_points)
             
-            # Simple pain level calculation
+            # Pharmacokinetic effect calculation using concentration curves
             for dose in sim.painkillers:
                 dose_time = dose['time_hours']
-                for i, t in enumerate(time_points):
-                    # For doses after midnight (before noon), treat them as next day
-                    # This ensures 01:00 appears after 17:25 in the timeline
-                    normalized_dose_time = dose_time
-                    if dose_time < 12:  # Dose is before noon (likely after midnight)
-                        # Check if this dose should be treated as next day
-                        # If we have other doses after noon, this one is from next day
-                        has_afternoon_doses = any(d['time_hours'] > 12 for d in sim.painkillers)
-                        if has_afternoon_doses:
-                            normalized_dose_time = dose_time + 24
+                dose_name = dose['name']
+                dose_pills = dose['pills']
+                
+                # Get medication data for this dose
+                med_data = None
+                if dose_name in medications_data.get('stimulants', {}):
+                    med_data = medications_data['stimulants'][dose_name]
+                elif dose_name in medications_data.get('painkillers', {}):
+                    med_data = medications_data['painkillers'][dose_name]
+                
+                if med_data:
+                    # Calculate total dose in mg
+                    standard_dose_mg = med_data.get('standard_dose_mg', 1)
+                    total_dose_mg = standard_dose_mg * dose_pills
                     
-                    # Calculate time difference
-                    time_diff = t - normalized_dose_time
+                    # Get timing parameters
+                    onset_min = med_data.get('onset_min', 60)
+                    t_peak_min = med_data.get('t_peak_min', 120)
+                    duration_min = med_data.get('duration_min', 480)
                     
-                    if time_diff >= 0 and time_diff < 8:  # 8 hour effect
-                        # Simple trapezoid effect
-                        if time_diff < 1:  # 1 hour onset
-                            effect = 8.0 * (time_diff / 1.0)
-                        elif time_diff < 5:  # 4 hour peak
-                            effect = 8.0
-                        else:  # 3 hour decline
-                            decline_time = time_diff - 5
-                            effect = 8.0 * (1 - decline_time / 3.0)
+                    # Generate concentration curve for this dose
+                    for i, t in enumerate(time_points):
+                        # Normalize time for midnight crossing
+                        normalized_dose_time = dose_time
+                        if dose_time < 12:  # Dose is before noon (likely after midnight)
+                            has_afternoon_doses = any(d['time_hours'] > 12 for d in sim.painkillers)
+                            if has_afternoon_doses:
+                                normalized_dose_time = dose_time + 24
                         
-                        pain_level[i] = max(pain_level[i], effect)
+                        # Calculate time difference in minutes
+                        time_diff_hours = t - normalized_dose_time
+                        time_diff_minutes = time_diff_hours * 60
+                        
+                        if time_diff_minutes >= 0 and time_diff_minutes < duration_min:
+                            # Calculate effect based on concentration curve
+                            if time_diff_minutes < onset_min:
+                                # Onset phase - smooth ramp up
+                                ramp_factor = time_diff_minutes / onset_min
+                                smooth_ramp = 3 * ramp_factor**2 - 2 * ramp_factor**3
+                                effect = total_dose_mg * smooth_ramp * 0.1  # Scale factor
+                            elif time_diff_minutes < (onset_min + t_peak_min):
+                                # Peak phase
+                                effect = total_dose_mg * 0.1  # Scale factor
+                            else:
+                                # Decline phase
+                                decline_start = onset_min + t_peak_min
+                                decline_duration = duration_min - decline_start
+                                decline_progress = (time_diff_minutes - decline_start) / decline_duration
+                                effect = total_dose_mg * (1 - decline_progress) * 0.1  # Scale factor
+                            
+                            # Add to total effect (max of overlapping effects)
+                            pain_level[i] = max(pain_level[i], effect)
             
             # Create figure
             fig = go.Figure()
